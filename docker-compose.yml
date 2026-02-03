@@ -6,33 +6,48 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: hcp-node0
+    hostname: node0
     volumes:
       - ./testnet/node0:/root/.hcpd
-    command: hcpd start --home /root/.hcpd
+    command: hcpd start --home /root/.hcpd --log_level info
     ports:
       - "26657:26657"  # RPC
       - "26656:26656"  # P2P
       - "1317:1317"    # REST API
       - "9090:9090"    # gRPC
+    environment:
+      - CHAIN_ID=hcp-testnet
+      - MONIKER=node0
     networks:
-      - hcp-network
+      hcp-network:
+        ipv4_address: 172.25.0.10
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:26657/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   node1:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: hcp-node1
+    hostname: node1
     volumes:
       - ./testnet/node1:/root/.hcpd
-    command: hcpd start --home /root/.hcpd
+    command: hcpd start --home /root/.hcpd --log_level info
     ports:
       - "26667:26657"
       - "26666:26656"
       - "1327:1317"
       - "9091:9090"
+    environment:
+      - CHAIN_ID=hcp-testnet
+      - MONIKER=node1
     networks:
-      - hcp-network
+      hcp-network:
+        ipv4_address: 172.25.0.11
     restart: unless-stopped
     depends_on:
       - node0
@@ -42,16 +57,21 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: hcp-node2
+    hostname: node2
     volumes:
       - ./testnet/node2:/root/.hcpd
-    command: hcpd start --home /root/.hcpd
+    command: hcpd start --home /root/.hcpd --log_level info
     ports:
       - "26677:26657"
       - "26676:26656"
       - "1337:1317"
       - "9092:9090"
+    environment:
+      - CHAIN_ID=hcp-testnet
+      - MONIKER=node2
     networks:
-      - hcp-network
+      hcp-network:
+        ipv4_address: 172.25.0.12
     restart: unless-stopped
     depends_on:
       - node0
@@ -61,23 +81,84 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: hcp-node3
+    hostname: node3
     volumes:
       - ./testnet/node3:/root/.hcpd
-    command: hcpd start --home /root/.hcpd
+    command: hcpd start --home /root/.hcpd --log_level info
     ports:
       - "26687:26657"
       - "26686:26656"
       - "1347:1317"
       - "9093:9090"
+    environment:
+      - CHAIN_ID=hcp-testnet
+      - MONIKER=node3
     networks:
-      - hcp-network
+      hcp-network:
+        ipv4_address: 172.25.0.13
     restart: unless-stopped
     depends_on:
       - node0
+
+  gateway:
+    build:
+      context: ../hcp-gateway
+      dockerfile: Dockerfile
+    container_name: hcp-gateway
+    ports:
+      - "8080:8080"
+    networks:
+      hcp-network:
+        ipv4_address: 172.25.0.20
+    restart: unless-stopped
+    depends_on:
+      - node0
+
+  ui:
+    build:
+      context: ../hcp-ui
+      dockerfile: Dockerfile
+    container_name: hcp-ui
+    ports:
+      - "80:80"
+    networks:
+      hcp-network:
+        ipv4_address: 172.25.0.30
+    restart: unless-stopped
+    depends_on:
+      - gateway
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: hcp-prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9099:9090"
+    networks:
+      hcp-network:
+        ipv4_address: 172.25.0.100
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: hcp-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    networks:
+      hcp-network:
+        ipv4_address: 172.25.0.101
+    restart: unless-stopped
+    depends_on:
+      - prometheus
 
 networks:
   hcp-network:
     driver: bridge
     ipam:
+      driver: default
       config:
         - subnet: 172.25.0.0/16
+          gateway: 172.25.0.1

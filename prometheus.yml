@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 100ms # Very aggressive scrape interval for HFT demo
+  evaluation_interval: 1s
+
+scrape_configs:
+  - job_name: 'hcp-nodes'
+    static_configs:
+      - targets: ['node0:26660', 'node1:26660', 'node2:26660', 'node3:26660'] # Assuming metrics port is 26660
+    metrics_path: /metrics
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

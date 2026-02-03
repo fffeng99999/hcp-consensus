@@ -3,6 +3,7 @@ package consensus
 import (
 	"math"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -20,6 +21,7 @@ type NodeTrustScore struct {
 
 // TrustManager manages trust scores for all validators
 type TrustManager struct {
+	mu     sync.RWMutex
 	scores map[string]*NodeTrustScore
 }
 
@@ -32,6 +34,9 @@ func NewTrustManager() *TrustManager {
 
 // InitializeNode initializes trust score for a new node
 func (tm *TrustManager) InitializeNode(nodeID string, initialEquity int64) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
 	tm.scores[nodeID] = &NodeTrustScore{
 		NodeID:         nodeID,
 		TrustValue:     1.0, // Start with full trust
@@ -43,9 +48,8 @@ func (tm *TrustManager) InitializeNode(nodeID string, initialEquity int64) {
 	}
 }
 
-// UpdateTrustScore updates trust score based on node performance
-// Formula: TrustValue = (SuccessRate * 0.4) + (EquityWeight * 0.3) + (ResponseWeight * 0.3)
-func (tm *TrustManager) UpdateTrustScore(nodeID string) {
+// updateTrustScore calculates trust score based on performance (internal, no lock)
+func (tm *TrustManager) updateTrustScore(nodeID string) {
 	score, exists := tm.scores[nodeID]
 	if !exists {
 		return
@@ -59,6 +63,7 @@ func (tm *TrustManager) UpdateTrustScore(nodeID string) {
 	}
 
 	// Calculate equity weight (normalized to 0-1)
+	// Assuming 1,000,000 tokens is max score
 	equityWeight := math.Min(float64(score.EquityScore)/1000000.0, 1.0)
 
 	// Calculate response time weight (inverse, lower is better)
@@ -69,12 +74,23 @@ func (tm *TrustManager) UpdateTrustScore(nodeID string) {
 	}
 
 	// Weighted trust calculation
+	// Weights: Success(40%) + Equity(30%) + Response(30%)
 	score.TrustValue = (successRate * 0.4) + (equityWeight * 0.3) + (responseWeight * 0.3)
 	score.LastUpdateTime = time.Now()
 }
 
+// UpdateTrustScore updates trust score based on node performance (thread-safe)
+func (tm *TrustManager) UpdateTrustScore(nodeID string) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	tm.updateTrustScore(nodeID)
+}
+
 // RecordTransaction records a transaction result for a validator
 func (tm *TrustManager) RecordTransaction(nodeID string, success bool, responseTimeMs int64) {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
 	score, exists := tm.scores[nodeID]
 	if !exists {
 		return
@@ -93,12 +109,15 @@ func (tm *TrustManager) RecordTransaction(nodeID string, success bool, responseT
 		score.ResponseTime = (score.ResponseTime + responseTimeMs) / 2
 	}
 
-	tm.UpdateTrustScore(nodeID)
+	tm.updateTrustScore(nodeID)
 }
 
 // SelectValidators selects top N validators based on trust scores
 // This is the key optimization: only trusted nodes participate in consensus
 func (tm *TrustManager) SelectValidators(count int) []string {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
 	type scorePair struct {
 		nodeID string
 		score  float64
@@ -125,13 +144,29 @@ func (tm *TrustManager) SelectValidators(count int) []string {
 
 // GetTrustScore returns trust score for a specific node
 func (tm *TrustManager) GetTrustScore(nodeID string) (*NodeTrustScore, bool) {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
 	score, exists := tm.scores[nodeID]
-	return score, exists
+	if !exists {
+		return nil, false
+	}
+	// Return a copy to be safe
+	scoreCopy := *score
+	return &scoreCopy, true
 }
 
 // GetAllScores returns all trust scores
 func (tm *TrustManager) GetAllScores() map[string]*NodeTrustScore {
-	return tm.scores
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	result := make(map[string]*NodeTrustScore)
+	for k, v := range tm.scores {
+		scoreCopy := *v
+		result[k] = &scoreCopy
+	}
+	return result
 }
 
 // ConsensusConfig holds tPBFT consensus configuration
@@ -144,25 +179,25 @@ type ConsensusConfig struct {
 	MaxValidators    int           `json:"max_validators"`
 }
 
-// DefaultTPBFTConfig returns optimized tPBFT configuration for HFT
+// DefaultTPBFTConfig returns default configuration for tPBFT
 func DefaultTPBFTConfig() *ConsensusConfig {
 	return &ConsensusConfig{
-		TimeoutPropose:   1000 * time.Millisecond, // 1s propose timeout
-		TimeoutPrevote:   500 * time.Millisecond,  // 500ms prevote
-		TimeoutPrecommit: 500 * time.Millisecond,  // 500ms precommit
-		TimeoutCommit:    500 * time.Millisecond,  // 500ms commit
-		MinValidators:    4,                        // Minimum 4 validators
-		MaxValidators:    7,                        // Maximum 7 validators
+		TimeoutPropose:   1000 * time.Millisecond,
+		TimeoutPrevote:   500 * time.Millisecond,
+		TimeoutPrecommit: 500 * time.Millisecond,
+		TimeoutCommit:    500 * time.Millisecond,
+		MinValidators:    4,
+		MaxValidators:    7,
 	}
 }
 
-// RaftConfig returns Raft-style configuration for comparison
+// RaftConfig returns Raft-style configuration
 func RaftConfig() *ConsensusConfig {
 	return &ConsensusConfig{
-		TimeoutPropose:   3000 * time.Millisecond, // Longer propose timeout
+		TimeoutPropose:   3000 * time.Millisecond,
 		TimeoutPrevote:   1000 * time.Millisecond,
 		TimeoutPrecommit: 1000 * time.Millisecond,
-		TimeoutCommit:    5000 * time.Millisecond, // Much longer commit
+		TimeoutCommit:    5000 * time.Millisecond,
 		MinValidators:    3,
 		MaxValidators:    7,
 	}
