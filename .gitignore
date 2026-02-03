@@ -1,0 +1,28 @@
+# Binaries
+/build/
+/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test data
+/testnet/node*/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+vendor/
+*.test
+*.out
+go.work
