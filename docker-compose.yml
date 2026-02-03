@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  node0:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hcp-node0
+    volumes:
+      - ./testnet/node0:/root/.hcpd
+    command: hcpd start --home /root/.hcpd
+    ports:
+      - "26657:26657"  # RPC
+      - "26656:26656"  # P2P
+      - "1317:1317"    # REST API
+      - "9090:9090"    # gRPC
+    networks:
+      - hcp-network
+    restart: unless-stopped
+
+  node1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hcp-node1
+    volumes:
+      - ./testnet/node1:/root/.hcpd
+    command: hcpd start --home /root/.hcpd
+    ports:
+      - "26667:26657"
+      - "26666:26656"
+      - "1327:1317"
+      - "9091:9090"
+    networks:
+      - hcp-network
+    restart: unless-stopped
+    depends_on:
+      - node0
+
+  node2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hcp-node2
+    volumes:
+      - ./testnet/node2:/root/.hcpd
+    command: hcpd start --home /root/.hcpd
+    ports:
+      - "26677:26657"
+      - "26676:26656"
+      - "1337:1317"
+      - "9092:9090"
+    networks:
+      - hcp-network
+    restart: unless-stopped
+    depends_on:
+      - node0
+
+  node3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hcp-node3
+    volumes:
+      - ./testnet/node3:/root/.hcpd
+    command: hcpd start --home /root/.hcpd
+    ports:
+      - "26687:26657"
+      - "26686:26656"
+      - "1347:1317"
+      - "9093:9090"
+    networks:
+      - hcp-network
+    restart: unless-stopped
+    depends_on:
+      - node0
+
+networks:
+  hcp-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
