@@ -1,0 +1,56 @@
+# HotStuff-style BFT Configuration
+# Linear message complexity
+
+#######################################################################
+###                   Consensus Configuration                       ###
+#######################################################################
+[consensus]
+
+# HotStuff has optimized timing
+timeout_propose = "2000ms"
+timeout_prevote = "800ms"
+timeout_precommit = "800ms"
+timeout_commit = "2000ms"
+
+# Pipeline commits
+skip_timeout_commit = false
+
+# Consistent block production
+create_empty_blocks = true
+create_empty_blocks_interval = "0s"
+
+peer_gossip_sleep_duration = "100ms"
+peer_query_maj23_sleep_duration = "200ms"
+
+#######################################################################
+###                      P2P Configuration                          ###
+#######################################################################
+[p2p]
+
+pex = true
+seed_mode = false
+max_num_inbound_peers = 40
+max_num_outbound_peers = 10
+send_rate = 15728640  # 15MB/s
+recv_rate = 15728640  # 15MB/s
+
+#######################################################################
+###                    Mempool Configuration                        ###
+#######################################################################
+[mempool]
+
+version = "v1"
+size = 8000
+max_tx_bytes = 1048576
+max_txs_bytes = 838860800  # 800MB
+cache_size = 16000
+
+#######################################################################
+###                 HotStuff Specific Settings                     ###
+#######################################################################
+
+# Use threshold signatures (BLS)
+use_threshold_signatures = false
+
+# Pipelining enabled
+enable_pipelining = true

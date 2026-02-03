@@ -1,0 +1,46 @@
+# Raft-style Consensus Configuration
+# For comparison with tPBFT
+
+#######################################################################
+###                   Consensus Configuration                       ###
+#######################################################################
+[consensus]
+
+# Raft typically has longer timeouts
+timeout_propose = "3000ms"
+timeout_prevote = "1000ms"
+timeout_precommit = "1000ms"
+timeout_commit = "5000ms"
+
+# Raft waits for all commits
+skip_timeout_commit = true
+
+# Raft doesn't create empty blocks by default
+create_empty_blocks = false
+create_empty_blocks_interval = "60s"
+
+peer_gossip_sleep_duration = "100ms"
+peer_query_maj23_sleep_duration = "200ms"
+
+#######################################################################
+###                      P2P Configuration                          ###
+#######################################################################
+[p2p]
+
+pex = true
+seed_mode = false
+max_num_inbound_peers = 40
+max_num_outbound_peers = 10
+send_rate = 5242880   # 5MB/s (lower than tPBFT)
+recv_rate = 5242880   # 5MB/s
+
+#######################################################################
+###                    Mempool Configuration                        ###
+#######################################################################
+[mempool]
+
+version = "v0"  # Use simpler mempool version
+size = 5000     # Smaller mempool
+max_tx_bytes = 1048576
+max_txs_bytes = 536870912  # 512MB
+cache_size = 10000
