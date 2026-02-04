@@ -1,8 +1,7 @@
-package consensus
+package tpbft
 
 import (
 	"math"
-	"sort"
 	"sync"
 	"time"
 )
@@ -102,115 +101,24 @@ func (tm *TrustManager) RecordTransaction(nodeID string, success bool, responseT
 		score.FailedTxs++
 	}
 
-	// Update average response time
+	// Simple moving average for response time
 	if score.ResponseTime == 0 {
 		score.ResponseTime = responseTimeMs
 	} else {
 		score.ResponseTime = (score.ResponseTime + responseTimeMs) / 2
 	}
 
+	// Recalculate trust score
 	tm.updateTrustScore(nodeID)
 }
 
-// SelectValidators selects top N validators based on trust scores
-// This is the key optimization: only trusted nodes participate in consensus
-func (tm *TrustManager) SelectValidators(count int) []string {
+// GetTrustScore returns the current trust score for a node
+func (tm *TrustManager) GetTrustScore(nodeID string) float64 {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 
-	type scorePair struct {
-		nodeID string
-		score  float64
+	if score, exists := tm.scores[nodeID]; exists {
+		return score.TrustValue
 	}
-
-	var pairs []scorePair
-	for nodeID, score := range tm.scores {
-		pairs = append(pairs, scorePair{nodeID, score.TrustValue})
-	}
-
-	// Sort by trust score descending
-	sort.Slice(pairs, func(i, j int) bool {
-		return pairs[i].score > pairs[j].score
-	})
-
-	// Select top N
-	result := make([]string, 0, count)
-	for i := 0; i < count && i < len(pairs); i++ {
-		result = append(result, pairs[i].nodeID)
-	}
-
-	return result
-}
-
-// GetTrustScore returns trust score for a specific node
-func (tm *TrustManager) GetTrustScore(nodeID string) (*NodeTrustScore, bool) {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-
-	score, exists := tm.scores[nodeID]
-	if !exists {
-		return nil, false
-	}
-	// Return a copy to be safe
-	scoreCopy := *score
-	return &scoreCopy, true
-}
-
-// GetAllScores returns all trust scores
-func (tm *TrustManager) GetAllScores() map[string]*NodeTrustScore {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-
-	result := make(map[string]*NodeTrustScore)
-	for k, v := range tm.scores {
-		scoreCopy := *v
-		result[k] = &scoreCopy
-	}
-	return result
-}
-
-// ConsensusConfig holds tPBFT consensus configuration
-type ConsensusConfig struct {
-	TimeoutPropose   time.Duration `json:"timeout_propose"`
-	TimeoutPrevote   time.Duration `json:"timeout_prevote"`
-	TimeoutPrecommit time.Duration `json:"timeout_precommit"`
-	TimeoutCommit    time.Duration `json:"timeout_commit"`
-	MinValidators    int           `json:"min_validators"`
-	MaxValidators    int           `json:"max_validators"`
-}
-
-// DefaultTPBFTConfig returns default configuration for tPBFT
-func DefaultTPBFTConfig() *ConsensusConfig {
-	return &ConsensusConfig{
-		TimeoutPropose:   1000 * time.Millisecond,
-		TimeoutPrevote:   500 * time.Millisecond,
-		TimeoutPrecommit: 500 * time.Millisecond,
-		TimeoutCommit:    500 * time.Millisecond,
-		MinValidators:    4,
-		MaxValidators:    7,
-	}
-}
-
-// RaftConfig returns Raft-style configuration
-func RaftConfig() *ConsensusConfig {
-	return &ConsensusConfig{
-		TimeoutPropose:   3000 * time.Millisecond,
-		TimeoutPrevote:   1000 * time.Millisecond,
-		TimeoutPrecommit: 1000 * time.Millisecond,
-		TimeoutCommit:    5000 * time.Millisecond,
-		MinValidators:    3,
-		MaxValidators:    7,
-	}
-}
-
-// HotStuffConfig returns HotStuff-style configuration
-func HotStuffConfig() *ConsensusConfig {
-	return &ConsensusConfig{
-		TimeoutPropose:   2000 * time.Millisecond,
-		TimeoutPrevote:   800 * time.Millisecond,
-		TimeoutPrecommit: 800 * time.Millisecond,
-		TimeoutCommit:    2000 * time.Millisecond,
-		MinValidators:    4,
-		MaxValidators:    7,
-	}
+	return 0.0
 }

@@ -4,20 +4,25 @@ import (
 	"encoding/json"
 	"io"
 
-	abci "github.com/cometbft/cometbft/abci/types"
-	dbm "github.com/cosmos/cosmos-db"
 	"cosmossdk.io/log"
 	storetypes "cosmossdk.io/store/types"
+	txsigning "cosmossdk.io/x/tx/signing"
+	abci "github.com/cometbft/cometbft/abci/types"
+	dbm "github.com/cosmos/cosmos-db"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	codec "github.com/cosmos/cosmos-sdk/codec"
+	"github.com/cosmos/cosmos-sdk/codec/address"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/runtime"
+	"github.com/cosmos/cosmos-sdk/server/api"
+	"github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/x/auth"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
+	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/cosmos-sdk/x/bank"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
@@ -63,10 +68,10 @@ type App struct {
 	keys map[string]*storetypes.KVStoreKey
 
 	// keepers
-	AccountKeeper    authkeeper.AccountKeeper
-	BankKeeper       bankkeeper.Keeper
-	StakingKeeper    *stakingkeeper.Keeper
-	ConsensusKeeper  consensuskeeper.Keeper
+	AccountKeeper   authkeeper.AccountKeeper
+	BankKeeper      bankkeeper.Keeper
+	StakingKeeper   *stakingkeeper.Keeper
+	ConsensusKeeper consensuskeeper.Keeper
 
 	// module manager
 	ModuleManager *module.Manager
@@ -82,12 +87,12 @@ func NewApp(
 	baseAppOptions ...func(*baseapp.BaseApp),
 ) *App {
 	interfaceRegistry, _ := codectypes.NewInterfaceRegistryWithOptions(codectypes.InterfaceRegistryOptions{
-		ProtoFiles: nil,
-		SigningOptions: nil,
+		ProtoFiles:     nil,
+		SigningOptions: txsigning.Options{},
 	})
 	appCodec := codec.NewProtoCodec(interfaceRegistry)
 	legacyAmino := codec.NewLegacyAmino()
-	txConfig := authtypes.StdTxConfig{Cdc: legacyAmino}
+	txConfig := authtx.NewTxConfig(appCodec, authtx.DefaultSignModes)
 
 	bApp := baseapp.NewBaseApp(appName, logger, db, txConfig.TxDecoder(), baseAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
@@ -117,7 +122,8 @@ func NewApp(
 			stakingtypes.BondedPoolName:    {authtypes.Burner, authtypes.Staking},
 			stakingtypes.NotBondedPoolName: {authtypes.Burner, authtypes.Staking},
 		},
-		authtypes.NewModuleAddress("gov").String(),
+		address.NewBech32Codec("hcp"),
+		"hcp",
 		authtypes.NewModuleAddress("gov").String(),
 	)
 
@@ -146,8 +152,8 @@ func NewApp(
 		app.AccountKeeper,
 		app.BankKeeper,
 		authtypes.NewModuleAddress("gov").String(),
-		app.ConsensusKeeper, // validator set
-		app.ConsensusKeeper, // consensus info
+		address.NewBech32Codec("hcpvaloper"),
+		address.NewBech32Codec("hcpvalcons"),
 	)
 
 	// Create module manager
@@ -156,9 +162,9 @@ func NewApp(
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper, nil),
 		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper, nil),
 		consensus.NewAppModule(appCodec, app.ConsensusKeeper),
-		genutil.NewAppModule(app.AccountKeeper, app.StakingKeeper, app, txConfig, nil),
+		genutil.NewAppModule(app.AccountKeeper, app.StakingKeeper, app, txConfig),
 	)
-	
+
 	app.ModuleManager.SetOrderInitGenesis(
 		authtypes.ModuleName,
 		banktypes.ModuleName,
@@ -187,7 +193,6 @@ func (app *App) InitChainer(ctx sdk.Context, req *abci.RequestInitChain) (*abci.
 	return app.ModuleManager.InitGenesis(ctx, app.appCodec, genesisState)
 }
 
-
 // Name returns the name of the App
 func (app *App) Name() string { return app.BaseApp.Name() }
 
@@ -201,7 +206,28 @@ func (app *App) InterfaceRegistry() codectypes.InterfaceRegistry {
 	return app.interfaceRegistry
 }
 
+// RegisterAPIRoutes registers all application module routes with the provided API server.
+func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig) {
+	clientCtx := apiSvr.ClientCtx
+	// Register new tx routes from grpc-gateway.
+	authtx.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+	// Register new tendermint queries routes from grpc-gateway.
+	// tmservice.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+
+	// Register legacy and grpc-gateway routes for all modules.
+	ModuleBasics.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
+}
+
 // TxConfig returns App's TxConfig
 func (app *App) TxConfig() client.TxConfig {
 	return app.txConfig
 }
+
+// RegisterNodeService registers the node gRPC service.
+func (app *App) RegisterNodeService(clientCtx client.Context, cfg config.Config) {}
+
+// RegisterTendermintService implements the Application.RegisterTendermintService method.
+func (app *App) RegisterTendermintService(clientCtx client.Context) {}
+
+// RegisterTxService implements the Application.RegisterTxService method.
+func (app *App) RegisterTxService(clientCtx client.Context) {}

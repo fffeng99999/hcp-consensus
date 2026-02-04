@@ -1,8 +1,11 @@
 package app
 
 import (
+	"io"
 	"os"
 
+	"cosmossdk.io/log"
+	dbm "github.com/cosmos/cosmos-db"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
 	"github.com/cosmos/cosmos-sdk/client/debug"
@@ -12,11 +15,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/server"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/version"
 	authcmd "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
-	"github.com/cosmos/cosmos-sdk/x/genutil"
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
-	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 	"github.com/spf13/cobra"
 )
 
@@ -70,19 +70,18 @@ func initRootCmd(rootCmd *cobra.Command) {
 	cfg.Seal()
 
 	rootCmd.AddCommand(
-		genutilcli.InitCmd(app.ModuleManager, DefaultNodeHome),
+		genutilcli.InitCmd(ModuleBasics, DefaultNodeHome),
 		debug.Cmd(),
-		config.Cmd(),
 	)
 
 	server.AddCommands(rootCmd, DefaultNodeHome, newApp, createHcpAppAndExport, addModuleInitFlags)
 
 	// add keybase, auxiliary RPC, query, genesis, and tx child commands
 	rootCmd.AddCommand(
-		rpc.StatusCommand(),
+		// rpc.StatusCmd(),
 		queryCommand(),
 		txCommand(),
-		keys.Commands(DefaultNodeHome),
+		keys.Commands(),
 	)
 }
 
@@ -101,14 +100,14 @@ func queryCommand() *cobra.Command {
 	}
 
 	cmd.AddCommand(
-		authcmd.GetAccountCmd(),
+		// authcmd.GetAccountCmd(),
 		rpc.ValidatorCommand(),
-		rpc.BlockCommand(),
+		// rpc.BlockCommand(),
 		authcmd.QueryTxsByEventsCmd(),
 		authcmd.QueryTxCmd(),
 	)
 
-	app.ModuleBasics.AddQueryCommands(cmd)
+	ModuleBasics.AddQueryCommands(cmd)
 	cmd.PersistentFlags().String(flags.FlagChainID, "", "The network chain ID")
 
 	return cmd
@@ -134,7 +133,7 @@ func txCommand() *cobra.Command {
 		authcmd.GetDecodeCommand(),
 	)
 
-	app.ModuleBasics.AddTxCommands(cmd)
+	ModuleBasics.AddTxCommands(cmd)
 	cmd.PersistentFlags().String(flags.FlagChainID, "", "The network chain ID")
 
 	return cmd
@@ -157,4 +156,3 @@ func createHcpAppAndExport(
 	// export logic would go here
 	return servertypes.ExportedApp{}, nil
 }
-
