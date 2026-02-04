@@ -1,9 +1,13 @@
 package app
 
 import (
+	"encoding/json"
 	"io"
 
+	abci "github.com/cometbft/cometbft/abci/types"
+	dbm "github.com/cosmos/cosmos-db"
 	"cosmossdk.io/log"
+	storetypes "cosmossdk.io/store/types"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	codec "github.com/cosmos/cosmos-sdk/codec"
@@ -20,6 +24,9 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/consensus"
 	consensuskeeper "github.com/cosmos/cosmos-sdk/x/consensus/keeper"
+	consensustypes "github.com/cosmos/cosmos-sdk/x/consensus/types"
+	"github.com/cosmos/cosmos-sdk/x/genutil"
+	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -28,6 +35,17 @@ import (
 var (
 	// DefaultNodeHome default home directories for the application daemon
 	DefaultNodeHome string
+
+	// ModuleBasics defines the module BasicManager is in charge of setting up basic,
+	// non-dependant module elements, such as codec registration
+	// and genesis verification.
+	ModuleBasics = module.NewBasicManager(
+		auth.AppModuleBasic{},
+		bank.AppModuleBasic{},
+		staking.AppModuleBasic{},
+		consensus.AppModuleBasic{},
+		genutil.AppModuleBasic{},
+	)
 )
 
 const appName = "hcpd"
@@ -40,6 +58,9 @@ type App struct {
 	appCodec          codec.Codec
 	interfaceRegistry codectypes.InterfaceRegistry
 	txConfig          client.TxConfig
+
+	// keys to access the substores
+	keys map[string]*storetypes.KVStoreKey
 
 	// keepers
 	AccountKeeper    authkeeper.AccountKeeper
@@ -54,7 +75,7 @@ type App struct {
 // NewApp returns a reference to an initialized App.
 func NewApp(
 	logger log.Logger,
-	db serverTypes.DB,
+	db dbm.DB,
 	traceStore io.Writer,
 	loadLatest bool,
 	appOpts servertypes.AppOptions,
@@ -70,6 +91,13 @@ func NewApp(
 
 	bApp := baseapp.NewBaseApp(appName, logger, db, txConfig.TxDecoder(), baseAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
+	bApp.SetInterfaceRegistry(interfaceRegistry)
+	bApp.SetTxEncoder(txConfig.TxEncoder())
+
+	keys := storetypes.NewKVStoreKeys(
+		authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
+		consensustypes.StoreKey,
+	)
 
 	app := &App{
 		BaseApp:           bApp,
@@ -77,32 +105,69 @@ func NewApp(
 		appCodec:          appCodec,
 		interfaceRegistry: interfaceRegistry,
 		txConfig:          txConfig,
+		keys:              keys,
 	}
 
-	// Initialize keepers (simplified version for demo)
+	// Initialize keepers
 	app.AccountKeeper = authkeeper.NewAccountKeeper(
 		appCodec,
-		runtime.NewKVStoreService(nil),
+		runtime.NewKVStoreService(keys[authtypes.StoreKey]),
 		authtypes.ProtoBaseAccount,
-		nil,
+		map[string][]string{
+			stakingtypes.BondedPoolName:    {authtypes.Burner, authtypes.Staking},
+			stakingtypes.NotBondedPoolName: {authtypes.Burner, authtypes.Staking},
+		},
+		authtypes.NewModuleAddress("gov").String(),
 		authtypes.NewModuleAddress("gov").String(),
 	)
 
 	app.BankKeeper = bankkeeper.NewBaseKeeper(
 		appCodec,
-		runtime.NewKVStoreService(nil),
+		runtime.NewKVStoreService(keys[banktypes.StoreKey]),
 		app.AccountKeeper,
-		nil,
+		map[string]bool{
+			stakingtypes.BondedPoolName:    true,
+			stakingtypes.NotBondedPoolName: true,
+		},
 		authtypes.NewModuleAddress("gov").String(),
+		logger,
+	)
+
+	app.ConsensusKeeper = consensuskeeper.NewKeeper(
+		appCodec,
+		runtime.NewKVStoreService(keys[consensustypes.StoreKey]),
+		authtypes.NewModuleAddress("gov").String(),
+		runtime.EventService{},
+	)
+
+	app.StakingKeeper = stakingkeeper.NewKeeper(
+		appCodec,
+		runtime.NewKVStoreService(keys[stakingtypes.StoreKey]),
+		app.AccountKeeper,
+		app.BankKeeper,
+		authtypes.NewModuleAddress("gov").String(),
+		app.ConsensusKeeper, // validator set
+		app.ConsensusKeeper, // consensus info
 	)
 
 	// Create module manager
 	app.ModuleManager = module.NewManager(
-		auth.NewAppModule(appCodec, app.AccountKeeper, nil),
-		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper),
-		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper),
+		auth.NewAppModule(appCodec, app.AccountKeeper, nil, nil),
+		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper, nil),
+		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper, nil),
 		consensus.NewAppModule(appCodec, app.ConsensusKeeper),
+		genutil.NewAppModule(app.AccountKeeper, app.StakingKeeper, app, txConfig, nil),
 	)
+	
+	app.ModuleManager.SetOrderInitGenesis(
+		authtypes.ModuleName,
+		banktypes.ModuleName,
+		stakingtypes.ModuleName,
+		consensustypes.ModuleName,
+		genutiltypes.ModuleName,
+	)
+
+	app.SetInitChainer(app.InitChainer)
 
 	if loadLatest {
 		if err := app.LoadLatestVersion(); err != nil {
@@ -113,13 +178,18 @@ func NewApp(
 	return app
 }
 
+// InitChainer application update at chain initialization
+func (app *App) InitChainer(ctx sdk.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+	var genesisState map[string]json.RawMessage
+	if err := json.Unmarshal(req.AppStateBytes, &genesisState); err != nil {
+		panic(err)
+	}
+	return app.ModuleManager.InitGenesis(ctx, app.appCodec, genesisState)
+}
+
+
 // Name returns the name of the App
 func (app *App) Name() string { return app.BaseApp.Name() }
-
-// LegacyAmino returns App's amino codec.
-func (app *App) LegacyAmino() *codec.LegacyAmino {
-	return app.cdc
-}
 
 // AppCodec returns App's codec.
 func (app *App) AppCodec() codec.Codec {
