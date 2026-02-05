@@ -39,6 +39,12 @@ import (
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/spf13/cobra"
+
+	// Import consensus modules
+	"github.com/fffeng99999/hcp-consensus/consensus/common"
+	"github.com/fffeng99999/hcp-consensus/consensus/hotstuff"
+	"github.com/fffeng99999/hcp-consensus/consensus/raft"
+	"github.com/fffeng99999/hcp-consensus/consensus/tpbft"
 )
 
 type StakingAppModuleBasic struct {
@@ -98,6 +104,9 @@ type App struct {
 
 	// module manager
 	ModuleManager *module.Manager
+
+	// Consensus Engine
+	ConsensusEngine common.ConsensusEngine
 }
 
 // NewApp returns a reference to an initialized App.
@@ -127,6 +136,26 @@ func NewApp(
 		consensustypes.StoreKey,
 	)
 
+	// Determine consensus engine from config
+	engineType := "tpbft" // Default
+	if appOpts.Get("consensus-engine") != nil {
+		if v, ok := appOpts.Get("consensus-engine").(string); ok {
+			engineType = v
+		}
+	}
+
+	var consensusEngine common.ConsensusEngine
+	switch engineType {
+	case "raft":
+		consensusEngine = raft.NewRaftConsensus()
+	case "hotstuff":
+		consensusEngine = hotstuff.NewHotStuffConsensus()
+	case "tpbft":
+		fallthrough
+	default:
+		consensusEngine = tpbft.NewTPBFT()
+	}
+
 	app := &App{
 		BaseApp:           bApp,
 		cdc:               legacyAmino,
@@ -134,6 +163,7 @@ func NewApp(
 		interfaceRegistry: interfaceRegistry,
 		txConfig:          txConfig,
 		keys:              keys,
+		ConsensusEngine:   consensusEngine,
 	}
 
 	// Initialize keepers
@@ -197,11 +227,23 @@ func NewApp(
 	)
 
 	app.SetInitChainer(app.InitChainer)
+	app.SetBeginBlocker(app.BeginBlocker) // Register BeginBlocker
+	app.SetEndBlocker(app.EndBlocker)     // Register EndBlocker
 
 	if loadLatest {
 		if err := app.LoadLatestVersion(); err != nil {
 			panic(err)
 		}
+	}
+
+	// Initialize Consensus Engine dependencies
+	if engine, ok := app.ConsensusEngine.(*tpbft.TPBFT); ok {
+		engine.SetStakingKeeper(app.StakingKeeper)
+	}
+
+	// Start Consensus Engine
+	if err := app.ConsensusEngine.Start(); err != nil {
+		logger.Error("Failed to start consensus engine", "error", err)
 	}
 
 	return app
@@ -214,6 +256,42 @@ func (app *App) InitChainer(ctx sdk.Context, req *abci.RequestInitChain) (*abci.
 		panic(err)
 	}
 	return app.ModuleManager.InitGenesis(ctx, app.appCodec, genesisState)
+}
+
+// BeginBlocker implementation
+func (app *App) BeginBlocker(ctx sdk.Context) (sdk.BeginBlock, error) {
+	// 1. Call standard module logic
+	_, err := app.ModuleManager.BeginBlock(ctx)
+	if err != nil {
+		return sdk.BeginBlock{}, err
+	}
+
+	// 2. Consensus Engine Hook
+	app.ConsensusEngine.BeginBlock(ctx)
+
+	return sdk.BeginBlock{}, nil
+}
+
+// EndBlocker implementation
+func (app *App) EndBlocker(ctx sdk.Context) (sdk.EndBlock, error) {
+	// 1. Call standard module logic
+	res, err := app.ModuleManager.EndBlock(ctx)
+	if err != nil {
+		return sdk.EndBlock{}, err
+	}
+
+	// 2. Consensus Engine Hook
+	validatorUpdates := app.ConsensusEngine.EndBlock(ctx)
+
+	// 3. Merge validator updates (if any)
+	// If Consensus Engine provides updates, we append/override.
+	// Note: Standard Staking EndBlock might also return updates.
+	// We need to decide policy. For now, append.
+	if len(validatorUpdates) > 0 {
+		res.ValidatorUpdates = append(res.ValidatorUpdates, validatorUpdates...)
+	}
+
+	return res, nil
 }
 
 // Name returns the name of the App
