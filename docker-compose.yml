@@ -100,33 +100,33 @@ services:
     depends_on:
       - node0
 
-  gateway:
-    build:
-      context: ../hcp-gateway
-      dockerfile: Dockerfile
-    container_name: hcp-gateway
-    ports:
-      - "8080:8080"
-    networks:
-      hcp-network:
-        ipv4_address: 172.25.0.20
-    restart: unless-stopped
-    depends_on:
-      - node0
-
-  ui:
-    build:
-      context: ../hcp-ui
-      dockerfile: Dockerfile
-    container_name: hcp-ui
-    ports:
-      - "80:80"
-    networks:
-      hcp-network:
-        ipv4_address: 172.25.0.30
-    restart: unless-stopped
-    depends_on:
-      - gateway
+#  gateway:
+#    build:
+#      context: ../hcp-gateway
+#      dockerfile: Dockerfile
+#    container_name: hcp-gateway
+#    ports:
+#      - "8080:8080"
+#    networks:
+#      hcp-network:
+#        ipv4_address: 172.25.0.20
+#    restart: unless-stopped
+#    depends_on:
+#      - node0
+#
+#  ui:
+#    build:
+#      context: ../hcp-ui
+#      dockerfile: Dockerfile
+#    container_name: hcp-ui
+#    ports:
+#      - "80:80"
+#    networks:
+#      hcp-network:
+#        ipv4_address: 172.25.0.30
+#    restart: unless-stopped
+#    depends_on:
+#      - gateway
 
   prometheus:
     image: prom/prometheus:latest

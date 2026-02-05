@@ -69,7 +69,7 @@ var (
 		bank.AppModuleBasic{},
 		StakingAppModuleBasic{},
 		consensus.AppModuleBasic{},
-		genutil.AppModuleBasic{},
+		genutil.AppModuleBasic{GenTxValidator: genutiltypes.DefaultMessageValidator},
 	)
 )
 

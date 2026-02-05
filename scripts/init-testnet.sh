@@ -43,8 +43,7 @@ for i in $(seq 0 $((NODE_COUNT-1))); do
     $BINARY init "$NODE_MONIKER" \
         --chain-id "$CHAIN_ID" \
         --home "$NODE_DIR" \
-        --overwrite \
-        2>&1 | grep -v "WARNING" || true
+        --overwrite
     
     # Create validator key
     $BINARY keys add "validator$i" \
@@ -61,6 +60,14 @@ for i in $(seq 0 $((NODE_COUNT-1))); do
         1000000000stake,1000000000token \
         --home "$NODE_DIR" \
         --keyring-backend test
+    
+    # Add genesis account to node0 (for collect-gentxs)
+    if [ $i -ne 0 ]; then
+        $BINARY genesis add-genesis-account "$VALIDATOR_ADDR" \
+            1000000000stake,1000000000token \
+            --home "$TESTNET_DIR/node0" \
+            --keyring-backend test
+    fi
     
     echo "  ✅ Node $i initialized"
     echo ""

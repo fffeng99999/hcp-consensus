@@ -19,9 +19,9 @@ all: build
 ###############################################################################
 
 build:
-	@echo "$(GREEN)Building hcpd binary with RocksDB support...$(NC)"
+	@echo "$(GREEN)Building hcpd binary...$(NC)"
 	@mkdir -p $(BUILD_DIR)
-	@go build -tags rocksdb -o $(BUILD_DIR)/$(BINARY) ./cmd/hcpd
+	@go build -o $(BUILD_DIR)/$(BINARY) ./cmd/hcpd
 	@echo "$(GREEN)✅ Build complete: $(BUILD_DIR)/$(BINARY)$(NC)"
 
 install: build
@@ -50,7 +50,7 @@ reset:
 
 start:
 	@echo "$(GREEN)Starting HCP testnet nodes...$(NC)"
-	@docker-compose up -d
+	@docker compose up -d
 	@echo "$(GREEN)✅ Nodes started!$(NC)"
 	@echo ""
 	@echo "$(YELLOW)RPC Endpoints:$(NC)"
@@ -63,26 +63,26 @@ start:
 
 stop:
 	@echo "$(YELLOW)Stopping HCP testnet...$(NC)"
-	@docker-compose down
+	@docker compose down
 	@echo "$(GREEN)✅ Nodes stopped$(NC)"
 
 restart: stop start
 
 logs:
 	@echo "$(YELLOW)Showing logs (Ctrl+C to exit)...$(NC)"
-	@docker-compose logs -f
+	@docker compose logs -f
 
 logs-node0:
-	@docker-compose logs -f node0
+	@docker compose logs -f node0
 
 logs-node1:
-	@docker-compose logs -f node1
+	@docker compose logs -f node1
 
 logs-node2:
-	@docker-compose logs -f node2
+	@docker compose logs -f node2
 
 logs-node3:
-	@docker-compose logs -f node3
+	@docker compose logs -f node3
 
 ###############################################################################
 ###                              Monitoring                                 ###

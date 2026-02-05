@@ -4,6 +4,7 @@ go 1.22
 
 require (
 	cosmossdk.io/log v1.3.0
+	cosmossdk.io/math v1.2.0
 	cosmossdk.io/store v1.0.2
 	cosmossdk.io/x/tx v0.13.0
 	github.com/cometbft/cometbft v0.38.2
@@ -11,6 +12,7 @@ require (
 	github.com/cosmos/cosmos-sdk v0.50.3
 	github.com/cosmos/gogoproto v1.4.11
 	github.com/spf13/cobra v1.8.0
+	github.com/stretchr/testify v1.8.4
 )
 
 require (
@@ -19,7 +21,6 @@ require (
 	cosmossdk.io/core v0.11.0 // indirect
 	cosmossdk.io/depinject v1.0.0-alpha.4 // indirect
 	cosmossdk.io/errors v1.0.1 // indirect
-	cosmossdk.io/math v1.2.0 // indirect
 	filippo.io/edwards25519 v1.0.0 // indirect
 	github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4 // indirect
 	github.com/99designs/keyring v1.2.1 // indirect
@@ -127,7 +128,6 @@ require (
 	github.com/spf13/cast v1.6.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/spf13/viper v1.18.2 // indirect
-	github.com/stretchr/testify v1.8.4 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d // indirect
 	github.com/tendermint/go-amino v0.16.0 // indirect

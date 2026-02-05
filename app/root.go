@@ -1,9 +1,12 @@
 package app
 
 import (
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
+	coreaddress "cosmossdk.io/core/address"
 	"cosmossdk.io/log"
 	txsigning "cosmossdk.io/x/tx/signing"
 	cmtcfg "github.com/cometbft/cometbft/config"
@@ -15,7 +18,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/keys"
 	"github.com/cosmos/cosmos-sdk/client/rpc"
 	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/codec/address"
+	sdkaddress "github.com/cosmos/cosmos-sdk/codec/address"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	"github.com/cosmos/cosmos-sdk/server"
@@ -43,8 +46,8 @@ func NewRootCmd() *cobra.Command {
 
 	// 2. Setup Encoding/TxConfig
 	signingOptions := txsigning.Options{
-		AddressCodec:          address.NewBech32Codec("hcp"),
-		ValidatorAddressCodec: address.NewBech32Codec("hcpvaloper"),
+		AddressCodec:          sdkaddress.NewBech32Codec("hcp"),
+		ValidatorAddressCodec: sdkaddress.NewBech32Codec("hcpvaloper"),
 	}
 
 	interfaceRegistry, err := codectypes.NewInterfaceRegistryWithOptions(codectypes.InterfaceRegistryOptions{
@@ -161,6 +164,44 @@ func queryCommand() *cobra.Command {
 	return cmd
 }
 
+func customCollectGenTxsCmd(genBalIterator banktypes.GenesisBalancesIterator, defaultNodeHome string, genTxValidator genutiltypes.MessageValidator, valAddrCodec coreaddress.Codec) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "collect-gentxs",
+		Short: "Collect genesis txs and output a genesis.json file",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			clientCtx := client.GetClientContextFromCmd(cmd)
+			cdc := clientCtx.Codec
+
+			serverCtx := server.GetServerContextFromCmd(cmd)
+			config := serverCtx.Config
+			config.SetRoot(clientCtx.HomeDir)
+
+			nodeID, valPubKey, err := genutil.InitializeNodeValidatorFiles(config)
+			if err != nil {
+				return err
+			}
+
+			genDoc, err := genutiltypes.AppGenesisFromFile(config.GenesisFile())
+			if err != nil {
+				return err
+			}
+
+			genTxsDir := filepath.Join(clientCtx.HomeDir, "config", "gentx")
+			initCfg := genutiltypes.NewInitConfig(genDoc.ChainID, genTxsDir, nodeID, valPubKey)
+
+			fmt.Printf("DEBUG: customCollectGenTxsCmd: valAddrCodec: %v, Type: %T\n", valAddrCodec, valAddrCodec)
+			if valAddrCodec == nil {
+				panic("valAddrCodec is nil in customCollectGenTxsCmd")
+			}
+
+			_, err = genutil.GenAppStateFromConfig(cdc, clientCtx.TxConfig, config, initCfg, genDoc, genBalIterator, genTxValidator, valAddrCodec)
+			return err
+		},
+	}
+	cmd.Flags().String(flags.FlagHome, defaultNodeHome, "The application home directory")
+	return cmd
+}
+
 func txCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                        "tx",
@@ -217,16 +258,15 @@ func CustomGenesisCoreCommand(txConfig client.TxConfig, moduleBasics module.Basi
 	gentxModule := moduleBasics[genutiltypes.ModuleName].(genutil.AppModuleBasic)
 
 	validatorCodec := txConfig.SigningContext().ValidatorAddressCodec()
-	// if validatorCodec == nil {
-	// 	panic("CustomGenesisCoreCommand: ValidatorAddressCodec is nil!")
-	// } else {
-	// 	fmt.Println("CustomGenesisCoreCommand: ValidatorAddressCodec is valid")
-	// }
+	if validatorCodec == nil {
+		panic("CustomGenesisCoreCommand: ValidatorAddressCodec is nil!")
+	}
 
 	cmd.AddCommand(
 		genutilcli.GenTxCmd(moduleBasics, txConfig, banktypes.GenesisBalancesIterator{}, defaultNodeHome, validatorCodec),
 		genutilcli.MigrateGenesisCmd(genutilcli.MigrationMap),
-		genutilcli.CollectGenTxsCmd(banktypes.GenesisBalancesIterator{}, defaultNodeHome, gentxModule.GenTxValidator, validatorCodec),
+		// genutilcli.CollectGenTxsCmd(banktypes.GenesisBalancesIterator{}, defaultNodeHome, gentxModule.GenTxValidator, address.NewBech32Codec("hcpvaloper")),
+		customCollectGenTxsCmd(banktypes.GenesisBalancesIterator{}, defaultNodeHome, gentxModule.GenTxValidator, sdkaddress.NewBech32Codec("hcpvaloper")),
 		genutilcli.ValidateGenesisCmd(moduleBasics),
 		genutilcli.AddGenesisAccountCmd(defaultNodeHome, txConfig.SigningContext().AddressCodec()),
 	)
