@@ -1,12 +1,12 @@
 package app
 
 import (
-	"fmt"
 	"io"
 	"os"
 
 	"cosmossdk.io/log"
 	txsigning "cosmossdk.io/x/tx/signing"
+	cmtcfg "github.com/cometbft/cometbft/config"
 	dbm "github.com/cosmos/cosmos-db"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
@@ -34,6 +34,50 @@ import (
 
 // NewRootCmd creates a new root command for hcpd.
 func NewRootCmd() *cobra.Command {
+	// 1. Setup Config
+	cfg := sdk.GetConfig()
+	cfg.SetBech32PrefixForAccount("hcp", "hcppub")
+	cfg.SetBech32PrefixForValidator("hcpvaloper", "hcpvaloperpub")
+	cfg.SetBech32PrefixForConsensusNode("hcpvalcons", "hcpvalconspub")
+	cfg.Seal()
+
+	// 2. Setup Encoding/TxConfig
+	signingOptions := txsigning.Options{
+		AddressCodec:          address.NewBech32Codec("hcp"),
+		ValidatorAddressCodec: address.NewBech32Codec("hcpvaloper"),
+	}
+
+	interfaceRegistry, err := codectypes.NewInterfaceRegistryWithOptions(codectypes.InterfaceRegistryOptions{
+		ProtoFiles:     proto.HybridResolver,
+		SigningOptions: signingOptions,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// Set FileResolver to interfaceRegistry to ensure proper resolution in TxConfig
+	signingOptions.FileResolver = interfaceRegistry
+
+	cryptocodec.RegisterInterfaces(interfaceRegistry)
+	ModuleBasics.RegisterInterfaces(interfaceRegistry)
+	appCodec := codec.NewProtoCodec(interfaceRegistry)
+	legacyAmino := codec.NewLegacyAmino()
+
+	txConfig, err := authtx.NewTxConfigWithOptions(appCodec, authtx.ConfigOptions{
+		SigningOptions: &signingOptions,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	if txConfig.SigningContext() == nil {
+		panic("SigningContext is nil")
+	}
+	if txConfig.SigningContext().ValidatorAddressCodec() == nil {
+		panic("ValidatorAddressCodec is nil")
+	}
+
+	// 3. Define rootCmd
 	rootCmd := &cobra.Command{
 		Use:   "hcpd",
 		Short: "HCP Consensus Node Daemon",
@@ -43,40 +87,15 @@ func NewRootCmd() *cobra.Command {
 			cmd.SetOut(cmd.OutOrStdout())
 			cmd.SetErr(cmd.ErrOrStderr())
 
-			signingOptions := txsigning.Options{
-				AddressCodec:          address.NewBech32Codec("hcp"),
-				ValidatorAddressCodec: address.NewBech32Codec("hcpvaloper"),
-			}
-
-			interfaceRegistry, err := codectypes.NewInterfaceRegistryWithOptions(codectypes.InterfaceRegistryOptions{
-				ProtoFiles:     proto.HybridResolver,
-				SigningOptions: signingOptions,
-			})
-			if err != nil {
-				return err
-			}
-
-			signingOptions.FileResolver = interfaceRegistry
-
-			cryptocodec.RegisterInterfaces(interfaceRegistry)
-			ModuleBasics.RegisterInterfaces(interfaceRegistry)
-			appCodec := codec.NewProtoCodec(interfaceRegistry)
-			legacyAmino := codec.NewLegacyAmino()
-			txConfig, err := authtx.NewTxConfigWithOptions(appCodec, authtx.ConfigOptions{
-				SigningOptions: &signingOptions,
-			})
-
 			clientCtx := client.Context{}.
 				WithCmdContext(cmd.Context()).
 				WithCodec(appCodec).
 				WithInterfaceRegistry(interfaceRegistry).
 				WithTxConfig(txConfig).
 				WithLegacyAmino(legacyAmino).
-				WithViper("HCP").
 				WithInput(os.Stdin).
 				WithAccountRetriever(nil).
 				WithHomeDir(DefaultNodeHome).
-				WithKeyringOptions(nil).
 				WithViper("HCP")
 
 			clientCtx, err = client.ReadPersistentCommandFlags(clientCtx, cmd.Flags())
@@ -93,53 +112,11 @@ func NewRootCmd() *cobra.Command {
 				return err
 			}
 
-			return server.InterceptConfigsPreRunHandler(cmd, "", nil, nil)
+			return server.InterceptConfigsPreRunHandler(cmd, "", nil, cmtcfg.DefaultConfig())
 		},
 	}
 
-	initRootCmd(rootCmd)
-	return rootCmd
-}
-
-func initRootCmd(rootCmd *cobra.Command) {
-	cfg := sdk.GetConfig()
-	cfg.SetBech32PrefixForAccount("hcp", "hcppub")
-	cfg.SetBech32PrefixForValidator("hcpvaloper", "hcpvaloperpub")
-	cfg.SetBech32PrefixForConsensusNode("hcpvalcons", "hcpvalconspub")
-	cfg.Seal()
-
-	signingOptions := txsigning.Options{
-		AddressCodec:          address.NewBech32Codec("hcp"),
-		ValidatorAddressCodec: address.NewBech32Codec("hcpvaloper"),
-	}
-
-	interfaceRegistry, err := codectypes.NewInterfaceRegistryWithOptions(codectypes.InterfaceRegistryOptions{
-		ProtoFiles:     proto.HybridResolver,
-		SigningOptions: signingOptions,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	signingOptions.FileResolver = interfaceRegistry
-
-	cryptocodec.RegisterInterfaces(interfaceRegistry)
-	ModuleBasics.RegisterInterfaces(interfaceRegistry)
-	appCodec := codec.NewProtoCodec(interfaceRegistry)
-	txConfig, err := authtx.NewTxConfigWithOptions(appCodec, authtx.ConfigOptions{
-		SigningOptions: &signingOptions,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	if txConfig.SigningContext() == nil {
-		panic("SigningContext is nil")
-	}
-	if txConfig.SigningContext().ValidatorAddressCodec() == nil {
-		panic("ValidatorAddressCodec is nil")
-	}
-
+	// 4. Add subcommands
 	rootCmd.AddCommand(
 		genutilcli.InitCmd(ModuleBasics, DefaultNodeHome),
 		CustomGenesisCoreCommand(txConfig, ModuleBasics, DefaultNodeHome),
@@ -150,11 +127,12 @@ func initRootCmd(rootCmd *cobra.Command) {
 
 	// add keybase, auxiliary RPC, query, genesis, and tx child commands
 	rootCmd.AddCommand(
-		// rpc.StatusCmd(),
 		queryCommand(),
 		txCommand(),
 		keys.Commands(),
 	)
+
+	return rootCmd
 }
 
 func addModuleInitFlags(startCmd *cobra.Command) {
@@ -172,9 +150,7 @@ func queryCommand() *cobra.Command {
 	}
 
 	cmd.AddCommand(
-		// authcmd.GetAccountCmd(),
 		rpc.ValidatorCommand(),
-		// rpc.BlockCommand(),
 		authcmd.QueryTxsByEventsCmd(),
 		authcmd.QueryTxCmd(),
 	)
@@ -241,11 +217,11 @@ func CustomGenesisCoreCommand(txConfig client.TxConfig, moduleBasics module.Basi
 	gentxModule := moduleBasics[genutiltypes.ModuleName].(genutil.AppModuleBasic)
 
 	validatorCodec := txConfig.SigningContext().ValidatorAddressCodec()
-	if validatorCodec == nil {
-		panic("CustomGenesisCoreCommand: ValidatorAddressCodec is nil!")
-	} else {
-		fmt.Println("CustomGenesisCoreCommand: ValidatorAddressCodec is valid")
-	}
+	// if validatorCodec == nil {
+	// 	panic("CustomGenesisCoreCommand: ValidatorAddressCodec is nil!")
+	// } else {
+	// 	fmt.Println("CustomGenesisCoreCommand: ValidatorAddressCodec is valid")
+	// }
 
 	cmd.AddCommand(
 		genutilcli.GenTxCmd(moduleBasics, txConfig, banktypes.GenesisBalancesIterator{}, defaultNodeHome, validatorCodec),
