@@ -1,10 +1,12 @@
 package app
 
 import (
+	"fmt"
 	"io"
 	"os"
 
 	"cosmossdk.io/log"
+	txsigning "cosmossdk.io/x/tx/signing"
 	dbm "github.com/cosmos/cosmos-db"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
@@ -12,11 +14,21 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/keys"
 	"github.com/cosmos/cosmos-sdk/client/rpc"
+	"github.com/cosmos/cosmos-sdk/codec"
+	"github.com/cosmos/cosmos-sdk/codec/address"
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	"github.com/cosmos/cosmos-sdk/server"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/module"
 	authcmd "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
+	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/cosmos/cosmos-sdk/x/genutil"
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
+	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
+	"github.com/cosmos/gogoproto/proto"
 	"github.com/spf13/cobra"
 )
 
@@ -31,8 +43,35 @@ func NewRootCmd() *cobra.Command {
 			cmd.SetOut(cmd.OutOrStdout())
 			cmd.SetErr(cmd.ErrOrStderr())
 
+			signingOptions := txsigning.Options{
+				AddressCodec:          address.NewBech32Codec("hcp"),
+				ValidatorAddressCodec: address.NewBech32Codec("hcpvaloper"),
+			}
+
+			interfaceRegistry, err := codectypes.NewInterfaceRegistryWithOptions(codectypes.InterfaceRegistryOptions{
+				ProtoFiles:     proto.HybridResolver,
+				SigningOptions: signingOptions,
+			})
+			if err != nil {
+				return err
+			}
+
+			signingOptions.FileResolver = interfaceRegistry
+
+			cryptocodec.RegisterInterfaces(interfaceRegistry)
+			ModuleBasics.RegisterInterfaces(interfaceRegistry)
+			appCodec := codec.NewProtoCodec(interfaceRegistry)
+			legacyAmino := codec.NewLegacyAmino()
+			txConfig, err := authtx.NewTxConfigWithOptions(appCodec, authtx.ConfigOptions{
+				SigningOptions: &signingOptions,
+			})
+
 			clientCtx := client.Context{}.
 				WithCmdContext(cmd.Context()).
+				WithCodec(appCodec).
+				WithInterfaceRegistry(interfaceRegistry).
+				WithTxConfig(txConfig).
+				WithLegacyAmino(legacyAmino).
 				WithViper("HCP").
 				WithInput(os.Stdin).
 				WithAccountRetriever(nil).
@@ -40,7 +79,7 @@ func NewRootCmd() *cobra.Command {
 				WithKeyringOptions(nil).
 				WithViper("HCP")
 
-			clientCtx, err := client.ReadPersistentCommandFlags(clientCtx, cmd.Flags())
+			clientCtx, err = client.ReadPersistentCommandFlags(clientCtx, cmd.Flags())
 			if err != nil {
 				return err
 			}
@@ -69,8 +108,41 @@ func initRootCmd(rootCmd *cobra.Command) {
 	cfg.SetBech32PrefixForConsensusNode("hcpvalcons", "hcpvalconspub")
 	cfg.Seal()
 
+	signingOptions := txsigning.Options{
+		AddressCodec:          address.NewBech32Codec("hcp"),
+		ValidatorAddressCodec: address.NewBech32Codec("hcpvaloper"),
+	}
+
+	interfaceRegistry, err := codectypes.NewInterfaceRegistryWithOptions(codectypes.InterfaceRegistryOptions{
+		ProtoFiles:     proto.HybridResolver,
+		SigningOptions: signingOptions,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	signingOptions.FileResolver = interfaceRegistry
+
+	cryptocodec.RegisterInterfaces(interfaceRegistry)
+	ModuleBasics.RegisterInterfaces(interfaceRegistry)
+	appCodec := codec.NewProtoCodec(interfaceRegistry)
+	txConfig, err := authtx.NewTxConfigWithOptions(appCodec, authtx.ConfigOptions{
+		SigningOptions: &signingOptions,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	if txConfig.SigningContext() == nil {
+		panic("SigningContext is nil")
+	}
+	if txConfig.SigningContext().ValidatorAddressCodec() == nil {
+		panic("ValidatorAddressCodec is nil")
+	}
+
 	rootCmd.AddCommand(
 		genutilcli.InitCmd(ModuleBasics, DefaultNodeHome),
+		CustomGenesisCoreCommand(txConfig, ModuleBasics, DefaultNodeHome),
 		debug.Cmd(),
 	)
 
@@ -155,4 +227,33 @@ func createHcpAppAndExport(
 ) (servertypes.ExportedApp, error) {
 	// export logic would go here
 	return servertypes.ExportedApp{}, nil
+}
+
+// CustomGenesisCoreCommand copies logic from genutilcli.GenesisCoreCommand but allows debugging
+func CustomGenesisCoreCommand(txConfig client.TxConfig, moduleBasics module.BasicManager, defaultNodeHome string) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:                        "genesis",
+		Short:                      "Application's genesis-related subcommands",
+		DisableFlagParsing:         false,
+		SuggestionsMinimumDistance: 2,
+		RunE:                       client.ValidateCmd,
+	}
+	gentxModule := moduleBasics[genutiltypes.ModuleName].(genutil.AppModuleBasic)
+
+	validatorCodec := txConfig.SigningContext().ValidatorAddressCodec()
+	if validatorCodec == nil {
+		panic("CustomGenesisCoreCommand: ValidatorAddressCodec is nil!")
+	} else {
+		fmt.Println("CustomGenesisCoreCommand: ValidatorAddressCodec is valid")
+	}
+
+	cmd.AddCommand(
+		genutilcli.GenTxCmd(moduleBasics, txConfig, banktypes.GenesisBalancesIterator{}, defaultNodeHome, validatorCodec),
+		genutilcli.MigrateGenesisCmd(genutilcli.MigrationMap),
+		genutilcli.CollectGenTxsCmd(banktypes.GenesisBalancesIterator{}, defaultNodeHome, gentxModule.GenTxValidator, validatorCodec),
+		genutilcli.ValidateGenesisCmd(moduleBasics),
+		genutilcli.AddGenesisAccountCmd(defaultNodeHome, txConfig.SigningContext().AddressCodec()),
+	)
+
+	return cmd
 }

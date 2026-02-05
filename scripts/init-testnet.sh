@@ -85,7 +85,9 @@ echo ""
 
 # Collect genesis transactions in node0
 echo "Collecting genesis transactions..."
-cp "$TESTNET_DIR"/node*/config/gentx/*.json "$TESTNET_DIR/node0/config/gentx/"
+for i in $(seq 1 $((NODE_COUNT-1))); do
+    cp "$TESTNET_DIR/node$i/config/gentx/"*.json "$TESTNET_DIR/node0/config/gentx/"
+done
 $BINARY genesis collect-gentxs --home "$TESTNET_DIR/node0" 2>&1 | grep -v "WARNING" || true
 echo ""
 
@@ -112,6 +114,7 @@ for i in $(seq 0 $((NODE_COUNT-1))); do
     APP_CONFIG="$TESTNET_DIR/node$i/config/app.toml"
     
     # Update config.toml
+    sed -i.bak 's/^db_backend = .*/db_backend = "rocksdb"/' "$CONFIG_FILE"
     sed -i.bak "s/^persistent_peers = .*/persistent_peers = \"$PEERS\"/" "$CONFIG_FILE"
     sed -i.bak 's/^timeout_commit = .*/timeout_commit = "500ms"/' "$CONFIG_FILE"
     sed -i.bak 's/^timeout_propose = .*/timeout_propose = "1000ms"/' "$CONFIG_FILE"

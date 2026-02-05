@@ -3,6 +3,8 @@ package app
 import (
 	"encoding/json"
 	"io"
+	"os"
+	"path/filepath"
 
 	"cosmossdk.io/log"
 	storetypes "cosmossdk.io/store/types"
@@ -33,9 +35,21 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/genutil"
 	genutiltypes "github.com/cosmos/cosmos-sdk/x/genutil/types"
 	"github.com/cosmos/cosmos-sdk/x/staking"
+	stakingcli "github.com/cosmos/cosmos-sdk/x/staking/client/cli"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/spf13/cobra"
 )
+
+type StakingAppModuleBasic struct {
+	staking.AppModuleBasic
+}
+
+func (b StakingAppModuleBasic) GetTxCmd() *cobra.Command {
+	valAddrCodec := address.NewBech32Codec("hcpvaloper")
+	addrCodec := address.NewBech32Codec("hcp")
+	return stakingcli.NewTxCmd(valAddrCodec, addrCodec)
+}
 
 var (
 	// DefaultNodeHome default home directories for the application daemon
@@ -47,11 +61,20 @@ var (
 	ModuleBasics = module.NewBasicManager(
 		auth.AppModuleBasic{},
 		bank.AppModuleBasic{},
-		staking.AppModuleBasic{},
+		StakingAppModuleBasic{},
 		consensus.AppModuleBasic{},
 		genutil.AppModuleBasic{},
 	)
 )
+
+func init() {
+	userHomeDir, err := os.UserHomeDir()
+	if err != nil {
+		panic(err)
+	}
+
+	DefaultNodeHome = filepath.Join(userHomeDir, ".hcp")
+}
 
 const appName = "hcpd"
 
