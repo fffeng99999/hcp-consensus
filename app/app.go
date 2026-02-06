@@ -2,13 +2,14 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
 	"cosmossdk.io/log"
 	storetypes "cosmossdk.io/store/types"
-	txsigning "cosmossdk.io/x/tx/signing"
+	"cosmossdk.io/x/tx/signing"
 	abci "github.com/cometbft/cometbft/abci/types"
 	dbm "github.com/cosmos/cosmos-db"
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -16,6 +17,7 @@ import (
 	codec "github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/address"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	cryptocodec "github.com/cosmos/cosmos-sdk/crypto/codec"
 	"github.com/cosmos/cosmos-sdk/runtime"
 	"github.com/cosmos/cosmos-sdk/server/api"
 	"github.com/cosmos/cosmos-sdk/server/config"
@@ -38,6 +40,7 @@ import (
 	stakingcli "github.com/cosmos/cosmos-sdk/x/staking/client/cli"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/cosmos/gogoproto/proto"
 	"github.com/spf13/cobra"
 
 	// Import consensus modules
@@ -118,13 +121,49 @@ func NewApp(
 	appOpts servertypes.AppOptions,
 	baseAppOptions ...func(*baseapp.BaseApp),
 ) *App {
-	interfaceRegistry, _ := codectypes.NewInterfaceRegistryWithOptions(codectypes.InterfaceRegistryOptions{
-		ProtoFiles:     nil,
-		SigningOptions: txsigning.Options{},
+	interfaceRegistry, err := codectypes.NewInterfaceRegistryWithOptions(codectypes.InterfaceRegistryOptions{
+		ProtoFiles: proto.HybridResolver,
+		SigningOptions: signing.Options{
+			AddressCodec:          address.NewBech32Codec("hcp"),
+			ValidatorAddressCodec: address.NewBech32Codec("hcpvaloper"),
+		},
 	})
+	if err != nil {
+		panic(err)
+	}
 	appCodec := codec.NewProtoCodec(interfaceRegistry)
 	legacyAmino := codec.NewLegacyAmino()
 	txConfig := authtx.NewTxConfig(appCodec, authtx.DefaultSignModes)
+
+	// Register interfaces
+	cryptocodec.RegisterInterfaces(interfaceRegistry)
+	ModuleBasics.RegisterInterfaces(interfaceRegistry)
+
+	// Determine ChainID
+	var chainID string
+	if v, ok := appOpts.Get("chain-id").(string); ok {
+		chainID = v
+	}
+	if chainID == "" {
+		// Try to read from genesis file
+		homeDir, _ := appOpts.Get("home").(string)
+		if homeDir != "" {
+			genesisPath := filepath.Join(homeDir, "config", "genesis.json")
+			if content, err := os.ReadFile(genesisPath); err == nil {
+				var genesis struct {
+					ChainID string `json:"chain_id"`
+				}
+				if err := json.Unmarshal(content, &genesis); err == nil {
+					chainID = genesis.ChainID
+					fmt.Printf("DEBUG: Found ChainID in genesis: %s\n", chainID)
+				}
+			}
+		}
+	}
+
+	if chainID != "" {
+		baseAppOptions = append(baseAppOptions, baseapp.SetChainID(chainID))
+	}
 
 	bApp := baseapp.NewBaseApp(appName, logger, db, txConfig.TxDecoder(), baseAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
@@ -199,6 +238,9 @@ func NewApp(
 		runtime.EventService{},
 	)
 
+	// Set the BaseApp's parameter store
+	app.BaseApp.SetParamStore(app.ConsensusKeeper.ParamsStore)
+
 	app.StakingKeeper = stakingkeeper.NewKeeper(
 		appCodec,
 		runtime.NewKVStoreService(keys[stakingtypes.StoreKey]),
@@ -226,9 +268,17 @@ func NewApp(
 		genutiltypes.ModuleName,
 	)
 
+	// Register services
+	app.ModuleManager.RegisterServices(module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter()))
+
 	app.SetInitChainer(app.InitChainer)
 	app.SetBeginBlocker(app.BeginBlocker) // Register BeginBlocker
 	app.SetEndBlocker(app.EndBlocker)     // Register EndBlocker
+
+	// Mount KV stores
+	for _, key := range keys {
+		app.MountStore(key, storetypes.StoreTypeIAVL)
+	}
 
 	if loadLatest {
 		if err := app.LoadLatestVersion(); err != nil {
