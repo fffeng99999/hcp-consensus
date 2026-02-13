@@ -1,13 +1,24 @@
 package raft
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
 
+	"cosmossdk.io/math"
 	abci "github.com/cometbft/cometbft/abci/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 )
+
+// StakingKeeper defines the interface needed from the staking module
+type StakingKeeper interface {
+	GetValidatorByConsAddr(ctx context.Context, consAddr sdk.ConsAddress) (stakingtypes.Validator, error)
+	GetAllValidators(ctx context.Context) ([]stakingtypes.Validator, error)
+	TotalBondedTokens(ctx context.Context) (math.Int, error)
+	GetValidator(ctx context.Context, addr sdk.ValAddress) (stakingtypes.Validator, error)
+}
 
 // RaftConsensus implements the Raft consensus engine
 type RaftConsensus struct {
@@ -15,31 +26,36 @@ type RaftConsensus struct {
 	running bool
 
 	// Raft specific fields
-	currentTerm uint64
-	votedFor    string
-	log         []interface{} // Placeholder for log entries
-	role        Role
+	Node              *RaftNode
+	TrustScorer       *TrustScorer
+	ValidatorSelector *ValidatorSelector
 
 	// Config
-	electionTimeout   time.Duration
 	heartbeatInterval time.Duration
+
+	stakingKeeper StakingKeeper
 }
-
-type Role int
-
-const (
-	Follower Role = iota
-	Candidate
-	Leader
-)
 
 // NewRaftConsensus creates a new Raft consensus instance
 func NewRaftConsensus() *RaftConsensus {
+	// Initialize helpers
+	scorer := NewTrustScorer()
+	selector := NewValidatorSelector([]string{})
+	
+	// Node initialized with empty config, to be configured if running standalone
+	node := NewRaftNode("local-node", []string{})
+
 	return &RaftConsensus{
-		role:              Follower,
-		electionTimeout:   150 * time.Millisecond, // Randomize in real impl
+		Node:              node,
+		TrustScorer:       scorer,
+		ValidatorSelector: selector,
 		heartbeatInterval: 50 * time.Millisecond,
 	}
+}
+
+// SetStakingKeeper sets the staking keeper dependency
+func (r *RaftConsensus) SetStakingKeeper(k StakingKeeper) {
+	r.stakingKeeper = k
 }
 
 // Start starts the consensus engine
@@ -52,7 +68,7 @@ func (r *RaftConsensus) Start() error {
 	}
 
 	r.running = true
-	go r.runLoop()
+	r.Node.Start()
 	return nil
 }
 
@@ -66,41 +82,18 @@ func (r *RaftConsensus) Stop() error {
 	}
 
 	r.running = false
+	r.Node.Stop()
 	return nil
-}
-
-func (r *RaftConsensus) runLoop() {
-	ticker := time.NewTicker(r.heartbeatInterval)
-	defer ticker.Stop()
-
-	for r.running {
-		select {
-		case <-ticker.C:
-			// Handle election timeout / heartbeats
-			r.tick()
-		}
-	}
-}
-
-func (r *RaftConsensus) tick() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Simplified logic
-	if r.role == Leader {
-		// Send heartbeats
-	} else {
-		// Check election timeout
-	}
 }
 
 // BeginBlock implements ConsensusEngine
 func (r *RaftConsensus) BeginBlock(ctx sdk.Context) {
-	// No-op for now
+	// Logic to execute at the beginning of a block
+	// e.g. Leader check, etc.
 }
 
 // EndBlock implements ConsensusEngine
 func (r *RaftConsensus) EndBlock(ctx sdk.Context) []abci.ValidatorUpdate {
-	// No-op for now
+	// Logic to execute at the end of a block
 	return nil
 }
