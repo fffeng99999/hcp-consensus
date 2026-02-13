@@ -27,6 +27,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/module"
 	authcmd "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/genutil"
 	genutilcli "github.com/cosmos/cosmos-sdk/x/genutil/client/cli"
@@ -97,7 +98,7 @@ func NewRootCmd() *cobra.Command {
 				WithTxConfig(txConfig).
 				WithLegacyAmino(legacyAmino).
 				WithInput(os.Stdin).
-				WithAccountRetriever(nil).
+				WithAccountRetriever(authtypes.AccountRetriever{}).
 				WithHomeDir(DefaultNodeHome).
 				WithViper("HCP")
 

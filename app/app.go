@@ -29,6 +29,7 @@ import (
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/cosmos-sdk/x/bank"
+	bankcli "github.com/cosmos/cosmos-sdk/x/bank/client/cli"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/consensus"
@@ -50,6 +51,15 @@ import (
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft"
 )
 
+type BankAppModuleBasic struct {
+	bank.AppModuleBasic
+}
+
+func (b BankAppModuleBasic) GetTxCmd() *cobra.Command {
+	addrCodec := address.NewBech32Codec("hcp")
+	return bankcli.NewTxCmd(addrCodec)
+}
+
 type StakingAppModuleBasic struct {
 	staking.AppModuleBasic
 }
@@ -69,7 +79,7 @@ var (
 	// and genesis verification.
 	ModuleBasics = module.NewBasicManager(
 		auth.AppModuleBasic{},
-		bank.AppModuleBasic{},
+		BankAppModuleBasic{},
 		StakingAppModuleBasic{},
 		consensus.AppModuleBasic{},
 		genutil.AppModuleBasic{GenTxValidator: genutiltypes.DefaultMessageValidator},
