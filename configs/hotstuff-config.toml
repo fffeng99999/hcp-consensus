@@ -1,6 +1,9 @@
 # HotStuff-style BFT Configuration
 # Linear message complexity
 
+# Use RocksDB backend
+db_backend = "rocksdb"
+
 #######################################################################
 ###                   Consensus Configuration                       ###
 #######################################################################

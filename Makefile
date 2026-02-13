@@ -19,9 +19,9 @@ all: build
 ###############################################################################
 
 build:
-	@echo "$(GREEN)Building hcpd binary...$(NC)"
+	@echo "$(GREEN)Building hcpd binary with RocksDB support...$(NC)"
 	@mkdir -p $(BUILD_DIR)
-	@go build -o $(BUILD_DIR)/$(BINARY) ./cmd/hcpd
+	@CGO_ENABLED=1 go build -tags rocksdb -o $(BUILD_DIR)/$(BINARY) ./cmd/hcpd
 	@echo "$(GREEN)✅ Build complete: $(BUILD_DIR)/$(BINARY)$(NC)"
 
 install: build

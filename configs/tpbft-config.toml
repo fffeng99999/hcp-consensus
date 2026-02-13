@@ -1,6 +1,9 @@
 # tPBFT (Trust-based PBFT) Configuration
 # Optimized for High-Frequency Trading scenarios
 
+# Use RocksDB backend
+db_backend = "rocksdb"
+
 #######################################################################
 ###                   Consensus Configuration                       ###
 #######################################################################

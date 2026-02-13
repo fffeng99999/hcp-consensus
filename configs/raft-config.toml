@@ -1,6 +1,9 @@
 # Raft-style Consensus Configuration
 # For comparison with tPBFT
 
+# Use RocksDB backend
+db_backend = "rocksdb"
+
 #######################################################################
 ###                   Consensus Configuration                       ###
 #######################################################################
