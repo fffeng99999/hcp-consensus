@@ -12,7 +12,7 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
-// StakingKeeper defines the interface needed from the staking module
+// StakingKeeper 定义了共识模块从质押模块需要的接口能力
 type StakingKeeper interface {
 	GetValidatorByConsAddr(ctx context.Context, consAddr sdk.ConsAddress) (stakingtypes.Validator, error)
 	GetAllValidators(ctx context.Context) ([]stakingtypes.Validator, error)
@@ -20,30 +20,30 @@ type StakingKeeper interface {
 	GetValidator(ctx context.Context, addr sdk.ValAddress) (stakingtypes.Validator, error)
 }
 
-// HotStuffConsensus implements the HotStuff consensus engine
+// HotStuffConsensus 实现了 HotStuff 共识引擎
 type HotStuffConsensus struct {
 	mu      sync.RWMutex
 	running bool
 
-	// HotStuff specific fields
+	// HotStuff 共识特有的字段
 	Node              *HotStuffNode
 	TrustScorer       *TrustScorer
 	ValidatorSelector *ValidatorSelector
 
-	// Config
+	// Config 保存 HotStuff 共识相关配置
 	viewTimeout time.Duration
 
 	stakingKeeper StakingKeeper
 }
 
-// NewHotStuffConsensus creates a new HotStuff consensus instance
+// NewHotStuffConsensus 创建一个新的 HotStuff 共识实例
 func NewHotStuffConsensus() *HotStuffConsensus {
-	// Initialize trust scorer and validator selector
+	// 初始化信任评分器和验证人选择器
 	scorer := NewTrustScorer()
-	// Default validators list is empty, will be updated later
+	// 默认验证人列表为空，后续会根据实际状态更新
 	selector := NewValidatorSelector([]string{"local-node"})
 
-	// Node initialized with empty config, to be configured if running standalone
+	// Node 使用空配置初始化，如果独立运行需要在外部设置具体参数
 	node := NewHotStuffNode("local-node", []string{})
 	node.ValidatorSelector = selector
 
@@ -55,12 +55,12 @@ func NewHotStuffConsensus() *HotStuffConsensus {
 	}
 }
 
-// SetStakingKeeper sets the staking keeper dependency
+// SetStakingKeeper 设置质押模块依赖
 func (h *HotStuffConsensus) SetStakingKeeper(k StakingKeeper) {
 	h.stakingKeeper = k
 }
 
-// Start starts the consensus engine
+// Start 启动共识引擎
 func (h *HotStuffConsensus) Start() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -74,7 +74,7 @@ func (h *HotStuffConsensus) Start() error {
 	return nil
 }
 
-// Stop stops the consensus engine
+// Stop 停止共识引擎
 func (h *HotStuffConsensus) Stop() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -94,7 +94,7 @@ func (h *HotStuffConsensus) runLoop() {
 	for h.running {
 		select {
 		case <-ticker.C:
-			// Handle view timeout
+			// 处理视图超时
 			h.newView()
 		default:
 			time.Sleep(100 * time.Millisecond)
@@ -106,17 +106,17 @@ func (h *HotStuffConsensus) newView() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	// Increment view on the node
+	// 增加节点当前视图号
 	h.Node.View++
 	currentView := h.Node.View
 
-	// Get leader for the new view
+	// 获取新视图对应的领导者
 	leader := h.ValidatorSelector.GetLeader(currentView)
 
 	fmt.Printf("Starting View %d, Leader: %s\n", currentView, leader)
 
-	// Create NewView message
-	// In HotStuff, replicas send NEW-VIEW to the next leader
+	// 创建 NewView 消息
+	// 在 HotStuff 中，副本会向下一任领导者发送 NEW-VIEW 消息
 	msg := &ConsensusMessage{
 		Type:          MessageTypeNewView,
 		View:          currentView,
@@ -124,28 +124,26 @@ func (h *HotStuffConsensus) newView() {
 		Justification: h.Node.PrepareQC, // Send highest QC
 	}
 
-	// In a real network, we would send this to the leader.
-	// Here we simulate by handling it if we are the leader, or logging it.
+	// 在真实网络中，这里会向领导者发送消息
+	// 当前实现通过自我处理或打印日志进行模拟
 	if h.Node.ID == leader {
-		// I am the leader, handle the NewView message (from myself)
-		// In reality, I would wait for N-f NewView messages.
+		// 当前节点为领导者，直接处理来自自身的 NewView 消息
+		// 实际实现中应等待至少 N-f 个 NewView 消息
 		h.Node.HandleMessage(msg)
 	} else {
-		// Send to leader (mock)
+		// 向领导者发送消息（模拟）
 		// network.Send(leader, msg)
 		fmt.Printf("Sending NewView to leader %s\n", leader)
 	}
 }
 
-// BeginBlock implements ConsensusEngine
+// BeginBlock 实现 ConsensusEngine 接口，在区块开始时被调用
 func (h *HotStuffConsensus) BeginBlock(ctx sdk.Context) {
-	// Logic to execute at the beginning of a block
-	// e.g. checking for evidence of misbehavior
+	// 在区块开始时执行的逻辑，例如检查作恶证据等
 }
 
-// EndBlock implements ConsensusEngine
+// EndBlock 实现 ConsensusEngine 接口，在区块结束时被调用
 func (h *HotStuffConsensus) EndBlock(ctx sdk.Context) []abci.ValidatorUpdate {
-	// Logic to execute at the end of a block
-	// e.g. updating validator set
+	// 在区块结束时执行的逻辑，例如更新验证人集合
 	return nil
 }

@@ -71,12 +71,11 @@ func (b StakingAppModuleBasic) GetTxCmd() *cobra.Command {
 }
 
 var (
-	// DefaultNodeHome default home directories for the application daemon
+	// DefaultNodeHome 应用守护进程使用的默认数据目录
 	DefaultNodeHome string
 
-	// ModuleBasics defines the module BasicManager is in charge of setting up basic,
-	// non-dependant module elements, such as codec registration
-	// and genesis verification.
+	// ModuleBasics 定义了由 BasicManager 管理的基础模块，
+	// 负责如编码注册、创世状态校验等与其他模块无强依赖的能力
 	ModuleBasics = module.NewBasicManager(
 		auth.AppModuleBasic{},
 		BankAppModuleBasic{},
@@ -97,7 +96,7 @@ func init() {
 
 const appName = "hcpd"
 
-// App extends an ABCI application
+// App 扩展了 ABCI 应用的基础实现
 type App struct {
 	*baseapp.BaseApp
 
@@ -106,23 +105,23 @@ type App struct {
 	interfaceRegistry codectypes.InterfaceRegistry
 	txConfig          client.TxConfig
 
-	// keys to access the substores
+	// keys 保存各子存储（KVStore）的键
 	keys map[string]*storetypes.KVStoreKey
 
-	// keepers
+	// keepers 各功能模块的 Keeper
 	AccountKeeper   authkeeper.AccountKeeper
 	BankKeeper      bankkeeper.Keeper
 	StakingKeeper   *stakingkeeper.Keeper
 	ConsensusKeeper consensuskeeper.Keeper
 
-	// module manager
+	// ModuleManager 管理所有模块的生命周期和路由
 	ModuleManager *module.Manager
 
-	// Consensus Engine
+	// ConsensusEngine 抽象的共识引擎实现（Raft / HotStuff / tPBFT 等）
 	ConsensusEngine common.ConsensusEngine
 }
 
-// NewApp returns a reference to an initialized App.
+// NewApp 创建并返回一个完成初始化的 App 实例
 func NewApp(
 	logger log.Logger,
 	db dbm.DB,
@@ -145,11 +144,11 @@ func NewApp(
 	legacyAmino := codec.NewLegacyAmino()
 	txConfig := authtx.NewTxConfig(appCodec, authtx.DefaultSignModes)
 
-	// Register interfaces
+	// 注册各种接口实现
 	cryptocodec.RegisterInterfaces(interfaceRegistry)
 	ModuleBasics.RegisterInterfaces(interfaceRegistry)
 
-	// Determine ChainID
+	// 确定链 ID（ChainID）
 	var chainID string
 	if v, ok := appOpts.Get("chain-id").(string); ok {
 		chainID = v
@@ -185,8 +184,8 @@ func NewApp(
 		consensustypes.StoreKey,
 	)
 
-	// Determine consensus engine from config
-	engineType := "tpbft" // Default
+	// 根据配置决定使用的共识引擎类型
+	engineType := "tpbft" // 默认使用 tPBFT
 	if appOpts.Get("consensus-engine") != nil {
 		if v, ok := appOpts.Get("consensus-engine").(string); ok {
 			engineType = v
@@ -215,7 +214,7 @@ func NewApp(
 		ConsensusEngine:   consensusEngine,
 	}
 
-	// Initialize keepers
+	// 初始化各模块 Keeper
 	app.AccountKeeper = authkeeper.NewAccountKeeper(
 		appCodec,
 		runtime.NewKVStoreService(keys[authtypes.StoreKey]),
@@ -248,7 +247,7 @@ func NewApp(
 		runtime.EventService{},
 	)
 
-	// Set the BaseApp's parameter store
+	// 设置 BaseApp 的参数存储
 	app.BaseApp.SetParamStore(app.ConsensusKeeper.ParamsStore)
 
 	app.StakingKeeper = stakingkeeper.NewKeeper(
@@ -261,7 +260,7 @@ func NewApp(
 		address.NewBech32Codec("hcpvalcons"),
 	)
 
-	// Create module manager
+	// 创建模块管理器
 	app.ModuleManager = module.NewManager(
 		auth.NewAppModule(appCodec, app.AccountKeeper, nil, nil),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper, nil),
@@ -278,14 +277,14 @@ func NewApp(
 		genutiltypes.ModuleName,
 	)
 
-	// Register services
+	// 注册各模块的 gRPC / Msg 等服务
 	app.ModuleManager.RegisterServices(module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter()))
 
 	app.SetInitChainer(app.InitChainer)
-	app.SetBeginBlocker(app.BeginBlocker) // Register BeginBlocker
-	app.SetEndBlocker(app.EndBlocker)     // Register EndBlocker
+	app.SetBeginBlocker(app.BeginBlocker) // 注册 BeginBlocker
+	app.SetEndBlocker(app.EndBlocker)     // 注册 EndBlocker
 
-	// Mount KV stores
+	// 挂载 KV 存储
 	for _, key := range keys {
 		app.MountStore(key, storetypes.StoreTypeIAVL)
 	}
@@ -296,12 +295,12 @@ func NewApp(
 		}
 	}
 
-	// Initialize Consensus Engine dependencies
+	// 初始化共识引擎依赖
 	if engine, ok := app.ConsensusEngine.(*tpbft.TPBFT); ok {
 		engine.SetStakingKeeper(app.StakingKeeper)
 	}
 
-	// Start Consensus Engine
+	// 启动共识引擎
 	if err := app.ConsensusEngine.Start(); err != nil {
 		logger.Error("Failed to start consensus engine", "error", err)
 	}
@@ -309,7 +308,7 @@ func NewApp(
 	return app
 }
 
-// InitChainer application update at chain initialization
+// InitChainer 在链初始化时处理应用级别的初始化逻辑
 func (app *App) InitChainer(ctx sdk.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
 	var genesisState map[string]json.RawMessage
 	if err := json.Unmarshal(req.AppStateBytes, &genesisState); err != nil {
@@ -318,35 +317,34 @@ func (app *App) InitChainer(ctx sdk.Context, req *abci.RequestInitChain) (*abci.
 	return app.ModuleManager.InitGenesis(ctx, app.appCodec, genesisState)
 }
 
-// BeginBlocker implementation
+// BeginBlocker 实现 BeginBlock 钩子逻辑
 func (app *App) BeginBlocker(ctx sdk.Context) (sdk.BeginBlock, error) {
-	// 1. Call standard module logic
+	// 1. 调用各标准模块的 BeginBlock 逻辑
 	_, err := app.ModuleManager.BeginBlock(ctx)
 	if err != nil {
 		return sdk.BeginBlock{}, err
 	}
 
-	// 2. Consensus Engine Hook
+	// 2. 触发共识引擎的 BeginBlock 钩子
 	app.ConsensusEngine.BeginBlock(ctx)
 
 	return sdk.BeginBlock{}, nil
 }
 
-// EndBlocker implementation
+// EndBlocker 实现 EndBlock 钩子逻辑
 func (app *App) EndBlocker(ctx sdk.Context) (sdk.EndBlock, error) {
-	// 1. Call standard module logic
+	// 1. 调用各标准模块的 EndBlock 逻辑
 	res, err := app.ModuleManager.EndBlock(ctx)
 	if err != nil {
 		return sdk.EndBlock{}, err
 	}
 
-	// 2. Consensus Engine Hook
+	// 2. 触发共识引擎的 EndBlock 钩子
 	validatorUpdates := app.ConsensusEngine.EndBlock(ctx)
 
-	// 3. Merge validator updates (if any)
-	// If Consensus Engine provides updates, we append/override.
-	// Note: Standard Staking EndBlock might also return updates.
-	// We need to decide policy. For now, append.
+	// 3. 合并验证人更新（若存在）
+	// 若共识引擎返回更新，则在原有基础上追加
+	// 注意：质押模块的 EndBlock 也可能返回验证人更新
 	if len(validatorUpdates) > 0 {
 		res.ValidatorUpdates = append(res.ValidatorUpdates, validatorUpdates...)
 	}
@@ -354,41 +352,41 @@ func (app *App) EndBlocker(ctx sdk.Context) (sdk.EndBlock, error) {
 	return res, nil
 }
 
-// Name returns the name of the App
+// Name 返回应用名称
 func (app *App) Name() string { return app.BaseApp.Name() }
 
-// AppCodec returns App's codec.
+// AppCodec 返回应用使用的编码器
 func (app *App) AppCodec() codec.Codec {
 	return app.appCodec
 }
 
-// InterfaceRegistry returns App's InterfaceRegistry
+// InterfaceRegistry 返回应用使用的接口注册表
 func (app *App) InterfaceRegistry() codectypes.InterfaceRegistry {
 	return app.interfaceRegistry
 }
 
-// RegisterAPIRoutes registers all application module routes with the provided API server.
+// RegisterAPIRoutes 在给定的 API 服务上注册各模块的 HTTP 路由
 func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig) {
 	clientCtx := apiSvr.ClientCtx
-	// Register new tx routes from grpc-gateway.
+	// 注册通过 grpc-gateway 暴露的交易路由
 	authtx.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
-	// Register new tendermint queries routes from grpc-gateway.
+	// 注册通过 grpc-gateway 暴露的 Tendermint 查询路由（当前注释掉）
 	// tmservice.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
 
-	// Register legacy and grpc-gateway routes for all modules.
+	// 为所有模块注册传统 REST 路由和 grpc-gateway 路由
 	ModuleBasics.RegisterGRPCGatewayRoutes(clientCtx, apiSvr.GRPCGatewayRouter)
 }
 
-// TxConfig returns App's TxConfig
+// TxConfig 返回交易配置
 func (app *App) TxConfig() client.TxConfig {
 	return app.txConfig
 }
 
-// RegisterNodeService registers the node gRPC service.
+// RegisterNodeService 注册节点相关的 gRPC 服务（当前为空实现）
 func (app *App) RegisterNodeService(clientCtx client.Context, cfg config.Config) {}
 
-// RegisterTendermintService implements the Application.RegisterTendermintService method.
+// RegisterTendermintService 实现 Application.RegisterTendermintService 接口（当前为空实现）
 func (app *App) RegisterTendermintService(clientCtx client.Context) {}
 
-// RegisterTxService implements the Application.RegisterTxService method.
+// RegisterTxService 实现 Application.RegisterTxService 接口（当前为空实现）
 func (app *App) RegisterTxService(clientCtx client.Context) {}

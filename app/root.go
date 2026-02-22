@@ -36,16 +36,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewRootCmd creates a new root command for hcpd.
+// NewRootCmd 创建 hcpd 的根命令
 func NewRootCmd() *cobra.Command {
-	// 1. Setup Config
+	// 1. 初始化链级配置（Bech32 前缀等）
 	cfg := sdk.GetConfig()
 	cfg.SetBech32PrefixForAccount("hcp", "hcppub")
 	cfg.SetBech32PrefixForValidator("hcpvaloper", "hcpvaloperpub")
 	cfg.SetBech32PrefixForConsensusNode("hcpvalcons", "hcpvalconspub")
 	cfg.Seal()
 
-	// 2. Setup Encoding/TxConfig
+	// 2. 初始化编码相关配置与 TxConfig
 	signingOptions := txsigning.Options{
 		AddressCodec:          sdkaddress.NewBech32Codec("hcp"),
 		ValidatorAddressCodec: sdkaddress.NewBech32Codec("hcpvaloper"),
@@ -59,7 +59,7 @@ func NewRootCmd() *cobra.Command {
 		panic(err)
 	}
 
-	// Set FileResolver to interfaceRegistry to ensure proper resolution in TxConfig
+	// 将 FileResolver 设置为 interfaceRegistry，确保 TxConfig 能正确解析类型
 	signingOptions.FileResolver = interfaceRegistry
 
 	cryptocodec.RegisterInterfaces(interfaceRegistry)
@@ -81,7 +81,7 @@ func NewRootCmd() *cobra.Command {
 		panic("ValidatorAddressCodec is nil")
 	}
 
-	// 3. Define rootCmd
+	// 3. 定义根命令 rootCmd
 	rootCmd := &cobra.Command{
 		Use:   "hcpd",
 		Short: "HCP Consensus Node Daemon",
@@ -120,7 +120,7 @@ func NewRootCmd() *cobra.Command {
 		},
 	}
 
-	// 4. Add subcommands
+	// 4. 添加子命令
 	rootCmd.AddCommand(
 		genutilcli.InitCmd(ModuleBasics, DefaultNodeHome),
 		CustomGenesisCoreCommand(txConfig, ModuleBasics, DefaultNodeHome),
@@ -129,7 +129,7 @@ func NewRootCmd() *cobra.Command {
 
 	server.AddCommands(rootCmd, DefaultNodeHome, newApp, createHcpAppAndExport, addModuleInitFlags)
 
-	// add keybase, auxiliary RPC, query, genesis, and tx child commands
+	// 添加密钥管理、辅助 RPC、查询、创世和交易等子命令
 	rootCmd.AddCommand(
 		queryCommand(),
 		txCommand(),
@@ -140,14 +140,14 @@ func NewRootCmd() *cobra.Command {
 }
 
 func addModuleInitFlags(startCmd *cobra.Command) {
-	// crisistypes.ModuleCdc = app.ModuleBasics.Cdc
+	// 此处可为各模块添加自定义初始化参数（当前未使用）
 }
 
 func queryCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                        "query",
 		Aliases:                    []string{"q"},
-		Short:                      "Querying subcommands",
+		Short:                      "查询相关子命令",
 		DisableFlagParsing:         true,
 		SuggestionsMinimumDistance: 2,
 		RunE:                       client.ValidateCmd,
@@ -160,7 +160,7 @@ func queryCommand() *cobra.Command {
 	)
 
 	ModuleBasics.AddQueryCommands(cmd)
-	cmd.PersistentFlags().String(flags.FlagChainID, "", "The network chain ID")
+	cmd.PersistentFlags().String(flags.FlagChainID, "", "网络的链 ID")
 
 	return cmd
 }
@@ -168,7 +168,7 @@ func queryCommand() *cobra.Command {
 func customCollectGenTxsCmd(genBalIterator banktypes.GenesisBalancesIterator, defaultNodeHome string, genTxValidator genutiltypes.MessageValidator, valAddrCodec coreaddress.Codec) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "collect-gentxs",
-		Short: "Collect genesis txs and output a genesis.json file",
+		Short: "收集合约创世交易并输出 genesis.json 文件",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			clientCtx := client.GetClientContextFromCmd(cmd)
 			cdc := clientCtx.Codec
@@ -206,7 +206,7 @@ func customCollectGenTxsCmd(genBalIterator banktypes.GenesisBalancesIterator, de
 func txCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                        "tx",
-		Short:                      "Transactions subcommands",
+		Short:                      "交易相关子命令",
 		DisableFlagParsing:         true,
 		SuggestionsMinimumDistance: 2,
 		RunE:                       client.ValidateCmd,
@@ -224,7 +224,7 @@ func txCommand() *cobra.Command {
 	)
 
 	ModuleBasics.AddTxCommands(cmd)
-	cmd.PersistentFlags().String(flags.FlagChainID, "", "The network chain ID")
+	cmd.PersistentFlags().String(flags.FlagChainID, "", "网络的链 ID")
 
 	return cmd
 }
@@ -243,11 +243,11 @@ func createHcpAppAndExport(
 	appOpts servertypes.AppOptions,
 	modulesToExport []string,
 ) (servertypes.ExportedApp, error) {
-	// export logic would go here
+	// 导出逻辑应当在此实现，当前仅返回空结构
 	return servertypes.ExportedApp{}, nil
 }
 
-// CustomGenesisCoreCommand copies logic from genutilcli.GenesisCoreCommand but allows debugging
+// CustomGenesisCoreCommand 复用 genutilcli.GenesisCoreCommand 的逻辑，并加入调试能力
 func CustomGenesisCoreCommand(txConfig client.TxConfig, moduleBasics module.BasicManager, defaultNodeHome string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                        "genesis",

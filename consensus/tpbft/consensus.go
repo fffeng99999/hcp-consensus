@@ -15,7 +15,7 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
-// StakingKeeper defines the interface needed from the staking module
+// StakingKeeper 定义了共识模块从质押模块需要的接口能力
 type StakingKeeper interface {
 	GetValidatorByConsAddr(ctx context.Context, consAddr sdk.ConsAddress) (stakingtypes.Validator, error)
 	GetAllValidators(ctx context.Context) ([]stakingtypes.Validator, error)
@@ -23,7 +23,7 @@ type StakingKeeper interface {
 	GetValidator(ctx context.Context, addr sdk.ValAddress) (stakingtypes.Validator, error)
 }
 
-// TPBFT implements the Trust-enhanced PBFT consensus engine
+// TPBFT 实现了带有信任增强机制的 PBFT 共识引擎
 type TPBFT struct {
 	mu                sync.RWMutex
 	TrustScorer       *TrustScorer
@@ -34,13 +34,13 @@ type TPBFT struct {
 	stakingKeeper StakingKeeper
 }
 
-// NewTPBFT creates a new tPBFT consensus instance
+// NewTPBFT 创建一个新的 tPBFT 共识实例
 func NewTPBFT() *TPBFT {
 	scorer := NewTrustScorer()
-	// Default config: minTrust=0.6, maxValidators=100
+	// 默认配置：最小信任分数 minTrust=0.6，最大验证人数量 maxValidators=100
 	selector := NewValidatorSelector(scorer, 0.6, 100)
 
-	// Node initialized with empty config, to be configured if running standalone
+	// Node 使用空配置初始化，如果独立运行需要在外部设置具体参数
 	node := NewPBFTNode("local-node", []string{})
 
 	return &TPBFT{
@@ -50,12 +50,12 @@ func NewTPBFT() *TPBFT {
 	}
 }
 
-// SetStakingKeeper sets the staking keeper dependency
+// SetStakingKeeper 设置质押模块依赖
 func (t *TPBFT) SetStakingKeeper(k StakingKeeper) {
 	t.stakingKeeper = k
 }
 
-// Start starts the consensus engine
+// Start 启动共识引擎
 func (t *TPBFT) Start() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -65,13 +65,13 @@ func (t *TPBFT) Start() error {
 	}
 
 	t.running = true
-	// Start background tasks
+	// 启动共识相关的后台任务
 	go t.consensusLoop()
 
 	return nil
 }
 
-// consensusLoop handles background tasks
+// consensusLoop 处理周期性后台任务
 func (t *TPBFT) consensusLoop() {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -79,14 +79,14 @@ func (t *TPBFT) consensusLoop() {
 	for t.running {
 		select {
 		case <-ticker.C:
-			// Periodic tasks (e.g. trust decay if needed)
+			// 周期性任务，例如需要时进行信任分衰减
 		default:
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
 }
 
-// Stop stops the consensus engine
+// Stop 停止共识引擎
 func (t *TPBFT) Stop() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -99,17 +99,17 @@ func (t *TPBFT) Stop() error {
 	return nil
 }
 
-// GetTrustScorer returns the trust scorer instance
+// GetTrustScorer 返回信任评分组件实例
 func (t *TPBFT) GetTrustScorer() *TrustScorer {
 	return t.TrustScorer
 }
 
-// GetValidatorSelector returns the validator selector instance
+// GetValidatorSelector 返回验证人选择器实例
 func (t *TPBFT) GetValidatorSelector() *ValidatorSelector {
 	return t.ValidatorSelector
 }
 
-// HandleMessage handles incoming consensus messages (for standalone simulation)
+// HandleMessage 处理收到的共识消息（独立仿真场景使用）
 func (t *TPBFT) HandleMessage(msg *ConsensusMessage) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -126,7 +126,7 @@ func (t *TPBFT) HandleMessage(msg *ConsensusMessage) error {
 }
 
 func (t *TPBFT) handlePrePrepare(msg *ConsensusMessage) error {
-	// 1. Verify Trust Score of proposer
+	// 1. 校验提案者的信任分数
 	score := t.TrustScorer.GetScore(msg.NodeID)
 	if score.TotalScore < t.ValidatorSelector.minTrustScore {
 		return fmt.Errorf("proposer trust score too low: %f", score.TotalScore)
@@ -142,7 +142,7 @@ func (t *TPBFT) handleCommit(msg *ConsensusMessage) error {
 	return nil
 }
 
-// BeginBlock implements ConsensusEngine
+// BeginBlock 实现 ConsensusEngine 接口的 BeginBlock 钩子
 func (t *TPBFT) BeginBlock(ctx sdk.Context) {
 	if t.stakingKeeper == nil {
 		return
@@ -153,8 +153,8 @@ func (t *TPBFT) BeginBlock(ctx sdk.Context) {
 		return
 	}
 
-	// Calculate response time
-	responseTime := 2 * time.Second // Placeholder
+	// 计算响应时间（当前为占位实现）
+	responseTime := 2 * time.Second // 占位值
 
 	val, err := t.stakingKeeper.GetValidatorByConsAddr(ctx, proposerAddr)
 	if err != nil || val.OperatorAddress == "" {
@@ -174,19 +174,19 @@ func (t *TPBFT) BeginBlock(ctx sdk.Context) {
 	)
 }
 
-// EndBlock implements ConsensusEngine
+// EndBlock 实现 ConsensusEngine 接口的 EndBlock 钩子
 func (t *TPBFT) EndBlock(ctx sdk.Context) []abci.ValidatorUpdate {
 	if t.stakingKeeper == nil {
 		return nil
 	}
 
-	// 1. Update trust scores for all validators
+	// 1. 为所有验证人更新信任分数
 	t.updateTrustScores(ctx)
 
-	// 2. Select next validators
+	// 2. 选择下一高度的验证人集合
 	newValidators := t.selectNextValidators(ctx)
 
-	// 3. Return validator updates if changed
+	// 3. 如有变化则返回验证人更新列表
 	if t.validatorsChanged(ctx, newValidators) {
 		return t.toABCIValidators(newValidators)
 	}
@@ -236,9 +236,8 @@ func (t *TPBFT) selectNextValidators(ctx sdk.Context) []stakingtypes.Validator {
 		valMap[addr] = v
 	}
 
-	// Use ValidatorSelector logic
-	// We need desired validator count. Let's use 100 or MaxValidators from params if available.
-	// Here hardcoded to 100 for simplicity or use selector's max.
+	// 使用 ValidatorSelector 的逻辑选择验证人
+	// 我们需要一个目标验证人数量，这里直接使用 selector 中配置的 maxValidators
 	count := t.ValidatorSelector.maxValidators
 	if count > len(allValidators) {
 		count = len(allValidators)
@@ -256,31 +255,19 @@ func (t *TPBFT) selectNextValidators(ctx sdk.Context) []stakingtypes.Validator {
 }
 
 func (t *TPBFT) validatorsChanged(ctx sdk.Context, newValidators []stakingtypes.Validator) bool {
-	// Simple check: compare with bonded validators
-	// This might be expensive.
-	// Optimization: compare hash or length + sample.
-	// For now: assumes StakingKeeper manages the set, so if we return updates, we override.
-	// But standard Staking EndBlock also updates.
-	// We should only return updates if we want to *change* what Staking module did?
-	// Actually, Staking module does its own updates.
-	// If we want to *override*, we need to know what Staking module would do.
-	// But usually, we just let Staking module handle it unless we have custom logic.
-	// Our custom logic IS the ValidatorSelector.
-	// So we should return the difference between "what we want" and "what is currently bonded".
-	return true // Force update for now
+	// 简单实现：总是认为验证人集合发生了变化
+	// 更严谨的做法应当是与当前已绑定的验证人集合进行比较
+	// 可以通过比较哈希、长度或采样来优化性能
+	// 当前实现假设 Staking 模块维护原始集合，若返回更新则表示由本模块覆盖
+	return true // 当前强制返回需要更新
 }
 
 func (t *TPBFT) toABCIValidators(validators []stakingtypes.Validator) []abci.ValidatorUpdate {
 	var updates []abci.ValidatorUpdate
 	for _, v := range validators {
-		// Convert to ABCI validator update
-		// We need to use proper codec
-		// This is tricky without the codec.
-		// Use helper if available.
-		// v.ABCIValidatorUpdate(PowerReduction) is available in some versions.
-
-		// Fallback: manually construct
-		// We need pubkey.
+		// 转换为 ABCI 所需的验证人更新结构
+		// 理论上应使用正确的编码工具（codec），部分版本中提供 v.ABCIValidatorUpdate 助手函数
+		// 这里采用手动构造方式，并提取共识公钥
 		pk, err := v.ConsPubKey()
 		if err != nil {
 			continue

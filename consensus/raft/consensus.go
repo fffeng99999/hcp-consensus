@@ -12,7 +12,7 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
-// StakingKeeper defines the interface needed from the staking module
+// StakingKeeper 定义了共识模块从质押模块需要的接口能力
 type StakingKeeper interface {
 	GetValidatorByConsAddr(ctx context.Context, consAddr sdk.ConsAddress) (stakingtypes.Validator, error)
 	GetAllValidators(ctx context.Context) ([]stakingtypes.Validator, error)
@@ -20,29 +20,29 @@ type StakingKeeper interface {
 	GetValidator(ctx context.Context, addr sdk.ValAddress) (stakingtypes.Validator, error)
 }
 
-// RaftConsensus implements the Raft consensus engine
+// RaftConsensus 实现了 Raft 共识引擎
 type RaftConsensus struct {
 	mu      sync.RWMutex
 	running bool
 
-	// Raft specific fields
+	// Raft 共识特有的字段
 	Node              *RaftNode
 	TrustScorer       *TrustScorer
 	ValidatorSelector *ValidatorSelector
 
-	// Config
+	// Config 保存 Raft 共识的配置参数
 	heartbeatInterval time.Duration
 
 	stakingKeeper StakingKeeper
 }
 
-// NewRaftConsensus creates a new Raft consensus instance
+// NewRaftConsensus 创建一个新的 Raft 共识实例
 func NewRaftConsensus() *RaftConsensus {
-	// Initialize helpers
+	// 初始化辅助组件
 	scorer := NewTrustScorer()
 	selector := NewValidatorSelector([]string{})
-	
-	// Node initialized with empty config, to be configured if running standalone
+
+	// Node 使用空配置初始化，如果独立运行需要在外部设置具体参数
 	node := NewRaftNode("local-node", []string{})
 
 	return &RaftConsensus{
@@ -53,12 +53,12 @@ func NewRaftConsensus() *RaftConsensus {
 	}
 }
 
-// SetStakingKeeper sets the staking keeper dependency
+// SetStakingKeeper 设置质押模块依赖
 func (r *RaftConsensus) SetStakingKeeper(k StakingKeeper) {
 	r.stakingKeeper = k
 }
 
-// Start starts the consensus engine
+// Start 启动共识引擎
 func (r *RaftConsensus) Start() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -72,7 +72,7 @@ func (r *RaftConsensus) Start() error {
 	return nil
 }
 
-// Stop stops the consensus engine
+// Stop 停止共识引擎
 func (r *RaftConsensus) Stop() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -86,14 +86,13 @@ func (r *RaftConsensus) Stop() error {
 	return nil
 }
 
-// BeginBlock implements ConsensusEngine
+// BeginBlock 实现 ConsensusEngine 接口，在区块开始时被调用
 func (r *RaftConsensus) BeginBlock(ctx sdk.Context) {
-	// Logic to execute at the beginning of a block
-	// e.g. Leader check, etc.
+	// 在区块开始时执行的逻辑，例如领导人检查等
 }
 
-// EndBlock implements ConsensusEngine
+// EndBlock 实现 ConsensusEngine 接口，在区块结束时被调用
 func (r *RaftConsensus) EndBlock(ctx sdk.Context) []abci.ValidatorUpdate {
-	// Logic to execute at the end of a block
+	// 在区块结束时执行的逻辑，当前未做任何更新
 	return nil
 }
