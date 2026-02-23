@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"cosmossdk.io/log"
 	storetypes "cosmossdk.io/store/types"
@@ -350,6 +351,15 @@ func (app *App) EndBlocker(ctx sdk.Context) (sdk.EndBlock, error) {
 	}
 
 	return res, nil
+}
+
+// Commit 实现 ABCI Commit 钩子，用于记录底层存储写入延迟
+func (app *App) Commit() (*abci.ResponseCommit, error) {
+	start := time.Now()
+	res, err := app.BaseApp.Commit()
+	elapsed := time.Since(start)
+	app.Logger().Info("rocksdb_write", "duration_ms", float64(elapsed.Milliseconds()))
+	return res, err
 }
 
 // Name 返回应用名称
