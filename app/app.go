@@ -393,10 +393,17 @@ func (app *App) TxConfig() client.TxConfig {
 }
 
 // RegisterNodeService 注册节点相关的 gRPC 服务（当前为空实现）
-func (app *App) RegisterNodeService(clientCtx client.Context, cfg config.Config) {}
+func (app *App) RegisterNodeService(clientCtx client.Context, cfg config.Config) {
+	// TODO: 实现节点服务注册逻辑
+}
 
 // RegisterTendermintService 实现 Application.RegisterTendermintService 接口（当前为空实现）
-func (app *App) RegisterTendermintService(clientCtx client.Context) {}
+func (app *App) RegisterTendermintService(clientCtx client.Context) {
+	// TODO: 实现 Tendermint 服务注册逻辑
+}
 
-// RegisterTxService 实现 Application.RegisterTxService 接口（当前为空实现）
-func (app *App) RegisterTxService(clientCtx client.Context) {}
+// RegisterTxService 实现 Application.RegisterTxService 接口
+// 注册交易相关的 gRPC 服务，包括 MsgServiceRouter 和 QueryRouter
+func (app *App) RegisterTxService(clientCtx client.Context) {
+	authtx.RegisterTxService(app.GRPCQueryRouter(), clientCtx, app.BaseApp.Simulate, app.interfaceRegistry)
+}
