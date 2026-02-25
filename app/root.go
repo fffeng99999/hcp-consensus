@@ -152,6 +152,21 @@ func addModuleInitFlags(startCmd *cobra.Command) {
 	startCmd.Flags().Float64("hierarchical-base-latency-ms", 1, "分层共识阶段基准时延(ms)")
 	startCmd.Flags().Float64("hierarchical-phase-weight-inner", 1, "分层共识组内阶段权重")
 	startCmd.Flags().Float64("hierarchical-phase-weight-outer", 1, "分层共识组间阶段权重")
+	startCmd.Flags().String("hierarchical-sig-algo", "bls", "分层TPBFT阈值签名算法")
+	startCmd.Flags().Float64("hierarchical-sig-gen-ms", 0, "分层TPBFT单次签名耗时(ms)")
+	startCmd.Flags().Float64("hierarchical-sig-verify-ms", 0, "分层TPBFT单次验签耗时(ms)")
+	startCmd.Flags().Float64("hierarchical-sig-agg-ms", 0, "分层TPBFT聚合签名耗时(ms)")
+	startCmd.Flags().String("hierarchical-outer-mode", "threshold", "分层TPBFT代表层签名模式")
+	startCmd.Flags().String("hierarchical-outer-sig-algo", "", "分层TPBFT代表层签名算法")
+	startCmd.Flags().Float64("hierarchical-outer-sig-gen-ms", 0, "分层TPBFT代表层单次签名耗时(ms)")
+	startCmd.Flags().Float64("hierarchical-outer-sig-verify-ms", 0, "分层TPBFT代表层单次验签耗时(ms)")
+	startCmd.Flags().Float64("hierarchical-outer-sig-agg-ms", 0, "分层TPBFT代表层聚合签名耗时(ms)")
+	startCmd.Flags().Bool("hierarchical-batch-verify", false, "分层TPBFT批量验签开关")
+	startCmd.Flags().Float64("hierarchical-batch-verify-gain", 1, "分层TPBFT批量验签加速比")
+	startCmd.Flags().Float64("hierarchical-sig-gen-parallelism", 1, "分层TPBFT签名生成并行度")
+	startCmd.Flags().Float64("hierarchical-sig-verify-parallelism", 1, "分层TPBFT验签并行度")
+	startCmd.Flags().Float64("hierarchical-sig-agg-parallelism", 1, "分层TPBFT聚合并行度")
+	startCmd.Flags().Int("hierarchical-batch-size", 200, "分层TPBFT每块交易批量")
 }
 
 func queryCommand() *cobra.Command {

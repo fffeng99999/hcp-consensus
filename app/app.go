@@ -49,6 +49,7 @@ import (
 	// Import consensus modules
 	"github.com/fffeng99999/hcp-consensus/consensus/common"
 	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical"
+	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_tpbft"
 	"github.com/fffeng99999/hcp-consensus/consensus/hotstuff"
 	"github.com/fffeng99999/hcp-consensus/consensus/raft"
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft"
@@ -237,6 +238,38 @@ func NewApp(
 		}
 		return fallback
 	}
+	readString := func(key string, fallback string) string {
+		if appOpts == nil {
+			return fallback
+		}
+		if appOpts.Get(key) == nil {
+			return fallback
+		}
+		switch v := appOpts.Get(key).(type) {
+		case string:
+			if v != "" {
+				return v
+			}
+		}
+		return fallback
+	}
+	readBool := func(key string, fallback bool) bool {
+		if appOpts == nil {
+			return fallback
+		}
+		if appOpts.Get(key) == nil {
+			return fallback
+		}
+		switch v := appOpts.Get(key).(type) {
+		case bool:
+			return v
+		case string:
+			if parsed, err := strconv.ParseBool(v); err == nil {
+				return parsed
+			}
+		}
+		return fallback
+	}
 
 	var consensusEngine common.ConsensusEngine
 	switch engineType {
@@ -249,6 +282,31 @@ func NewApp(
 			BaseLatencyMs:    readFloat("hierarchical-base-latency-ms", 1),
 			PhaseWeightInner: readFloat("hierarchical-phase-weight-inner", 1),
 			PhaseWeightOuter: readFloat("hierarchical-phase-weight-outer", 1),
+		})
+	case "hierarchical-tpbft":
+		consensusEngine = hierarchical_tpbft.NewHierarchicalTPBFT(hierarchical_tpbft.Config{
+			NodeCount:            readInt("hierarchical-node-count", 32),
+			GroupCount:           readInt("hierarchical-group-count", 0),
+			GroupSize:            readInt("hierarchical-group-size", 0),
+			MessageBytes:         readInt("hierarchical-message-bytes", 256),
+			BaseLatencyMs:        readFloat("hierarchical-base-latency-ms", 1),
+			PhaseWeightInner:     readFloat("hierarchical-phase-weight-inner", 1),
+			PhaseWeightOuter:     readFloat("hierarchical-phase-weight-outer", 1),
+			SigAlgorithm:         readString("hierarchical-sig-algo", "bls"),
+			SigGenMs:             readFloat("hierarchical-sig-gen-ms", 0),
+			SigVerifyMs:          readFloat("hierarchical-sig-verify-ms", 0),
+			SigAggMs:             readFloat("hierarchical-sig-agg-ms", 0),
+			OuterSigMode:         readString("hierarchical-outer-mode", "threshold"),
+			OuterSigAlgorithm:    readString("hierarchical-outer-sig-algo", ""),
+			OuterSigGenMs:        readFloat("hierarchical-outer-sig-gen-ms", 0),
+			OuterSigVerifyMs:     readFloat("hierarchical-outer-sig-verify-ms", 0),
+			OuterSigAggMs:        readFloat("hierarchical-outer-sig-agg-ms", 0),
+			BatchVerify:          readBool("hierarchical-batch-verify", false),
+			BatchVerifyGain:      readFloat("hierarchical-batch-verify-gain", 1),
+			SigGenParallelism:    readFloat("hierarchical-sig-gen-parallelism", 1),
+			SigVerifyParallelism: readFloat("hierarchical-sig-verify-parallelism", 1),
+			SigAggParallelism:    readFloat("hierarchical-sig-agg-parallelism", 1),
+			BatchSize:            readInt("hierarchical-batch-size", 200),
 		})
 	case "raft":
 		consensusEngine = raft.NewRaftConsensus()
