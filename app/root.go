@@ -140,7 +140,11 @@ func NewRootCmd() *cobra.Command {
 }
 
 func addModuleInitFlags(startCmd *cobra.Command) {
-	// 此处可为各模块添加自定义初始化参数（当前未使用）
+	startCmd.Flags().String("consensus-engine", "tpbft", "共识引擎类型")
+	startCmd.Flags().Int("merkle-tx-count", 1000, "并行Merkle每块交易数")
+	startCmd.Flags().Int("merkle-tx-size", 512, "并行Merkle交易大小(Bytes)")
+	startCmd.Flags().Int("merkle-k", 1, "并行Merkle子块数量")
+	startCmd.Flags().Int("merkle-repeat", 30, "并行Merkle重复次数")
 }
 
 func queryCommand() *cobra.Command {

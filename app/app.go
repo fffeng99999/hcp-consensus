@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"cosmossdk.io/log"
@@ -50,6 +51,8 @@ import (
 	"github.com/fffeng99999/hcp-consensus/consensus/hotstuff"
 	"github.com/fffeng99999/hcp-consensus/consensus/raft"
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft"
+	"github.com/fffeng99999/hcp-consensus/consensus/tpbft_parallel"
+	"github.com/fffeng99999/hcp-consensus/consensus/tpbft_parallel_block"
 )
 
 type BankAppModuleBasic struct {
@@ -185,12 +188,30 @@ func NewApp(
 		consensustypes.StoreKey,
 	)
 
-	// 根据配置决定使用的共识引擎类型
-	engineType := "tpbft" // 默认使用 tPBFT
+	engineType := "tpbft"
 	if appOpts.Get("consensus-engine") != nil {
 		if v, ok := appOpts.Get("consensus-engine").(string); ok {
 			engineType = v
 		}
+	}
+
+	readInt := func(key string, fallback int) int {
+		if appOpts.Get(key) == nil {
+			return fallback
+		}
+		switch v := appOpts.Get(key).(type) {
+		case int:
+			return v
+		case int64:
+			return int(v)
+		case float64:
+			return int(v)
+		case string:
+			if parsed, err := strconv.Atoi(v); err == nil {
+				return parsed
+			}
+		}
+		return fallback
 	}
 
 	var consensusEngine common.ConsensusEngine
@@ -199,11 +220,43 @@ func NewApp(
 		consensusEngine = raft.NewRaftConsensus()
 	case "hotstuff":
 		consensusEngine = hotstuff.NewHotStuffConsensus()
+	case "tpbft-parallel":
+		consensusEngine = tpbft_parallel.NewTPBFTParallel(tpbft_parallel.Config{
+			TxCount:   readInt("merkle-tx-count", 1000),
+			TxSize:    readInt("merkle-tx-size", 512),
+			SubBlockK: readInt("merkle-k", 1),
+			Repeat:    readInt("merkle-repeat", 30),
+		})
+	case "tpbft-parallel-block":
+		consensusEngine = tpbft_parallel_block.NewTPBFTParallelBlock(tpbft_parallel_block.Config{
+			SubBlockK: readInt("merkle-k", 1),
+		})
 	case "tpbft":
 		fallthrough
 	default:
 		consensusEngine = tpbft.NewTPBFT()
 	}
+
+	var parallelEngine *tpbft_parallel_block.TPBFTParallelBlock
+	if engine, ok := consensusEngine.(*tpbft_parallel_block.TPBFTParallelBlock); ok {
+		parallelEngine = engine
+	}
+	proposalHandler := baseapp.NewDefaultProposalHandler(bApp.Mempool(), bApp)
+	prepareHandler := proposalHandler.PrepareProposalHandler()
+	bApp.SetPrepareProposal(func(ctx sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
+		resp, err := prepareHandler(ctx, req)
+		if err == nil && parallelEngine != nil {
+			parallelEngine.ObserveProposal(req.Height, resp.Txs)
+		}
+		return resp, err
+	})
+	processHandler := proposalHandler.ProcessProposalHandler()
+	bApp.SetProcessProposal(func(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
+		if parallelEngine != nil {
+			parallelEngine.ObserveProposal(req.Height, req.Txs)
+		}
+		return processHandler(ctx, req)
+	})
 
 	app := &App{
 		BaseApp:           bApp,
@@ -298,6 +351,12 @@ func NewApp(
 
 	// 初始化共识引擎依赖
 	if engine, ok := app.ConsensusEngine.(*tpbft.TPBFT); ok {
+		engine.SetStakingKeeper(app.StakingKeeper)
+	}
+	if engine, ok := app.ConsensusEngine.(*tpbft_parallel.TPBFTParallel); ok {
+		engine.SetStakingKeeper(app.StakingKeeper)
+	}
+	if engine, ok := app.ConsensusEngine.(*tpbft_parallel_block.TPBFTParallelBlock); ok {
 		engine.SetStakingKeeper(app.StakingKeeper)
 	}
 
