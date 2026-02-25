@@ -145,6 +145,13 @@ func addModuleInitFlags(startCmd *cobra.Command) {
 	startCmd.Flags().Int("merkle-tx-size", 512, "并行Merkle交易大小(Bytes)")
 	startCmd.Flags().Int("merkle-k", 1, "并行Merkle子块数量")
 	startCmd.Flags().Int("merkle-repeat", 30, "并行Merkle重复次数")
+	startCmd.Flags().Int("hierarchical-node-count", 32, "分层共识节点总数")
+	startCmd.Flags().Int("hierarchical-group-count", 0, "分层共识组数")
+	startCmd.Flags().Int("hierarchical-group-size", 0, "分层共识每组节点数")
+	startCmd.Flags().Int("hierarchical-message-bytes", 256, "分层共识单消息字节数")
+	startCmd.Flags().Float64("hierarchical-base-latency-ms", 1, "分层共识阶段基准时延(ms)")
+	startCmd.Flags().Float64("hierarchical-phase-weight-inner", 1, "分层共识组内阶段权重")
+	startCmd.Flags().Float64("hierarchical-phase-weight-outer", 1, "分层共识组间阶段权重")
 }
 
 func queryCommand() *cobra.Command {

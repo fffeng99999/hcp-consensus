@@ -48,6 +48,7 @@ import (
 
 	// Import consensus modules
 	"github.com/fffeng99999/hcp-consensus/consensus/common"
+	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical"
 	"github.com/fffeng99999/hcp-consensus/consensus/hotstuff"
 	"github.com/fffeng99999/hcp-consensus/consensus/raft"
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft"
@@ -213,9 +214,42 @@ func NewApp(
 		}
 		return fallback
 	}
+	readFloat := func(key string, fallback float64) float64 {
+		if appOpts == nil {
+			return fallback
+		}
+		if appOpts.Get(key) == nil {
+			return fallback
+		}
+		switch v := appOpts.Get(key).(type) {
+		case float64:
+			return v
+		case float32:
+			return float64(v)
+		case int:
+			return float64(v)
+		case int64:
+			return float64(v)
+		case string:
+			if parsed, err := strconv.ParseFloat(v, 64); err == nil {
+				return parsed
+			}
+		}
+		return fallback
+	}
 
 	var consensusEngine common.ConsensusEngine
 	switch engineType {
+	case "hierarchical":
+		consensusEngine = hierarchical.NewHierarchicalConsensus(hierarchical.Config{
+			NodeCount:        readInt("hierarchical-node-count", 32),
+			GroupCount:       readInt("hierarchical-group-count", 0),
+			GroupSize:        readInt("hierarchical-group-size", 0),
+			MessageBytes:     readInt("hierarchical-message-bytes", 256),
+			BaseLatencyMs:    readFloat("hierarchical-base-latency-ms", 1),
+			PhaseWeightInner: readFloat("hierarchical-phase-weight-inner", 1),
+			PhaseWeightOuter: readFloat("hierarchical-phase-weight-outer", 1),
+		})
 	case "raft":
 		consensusEngine = raft.NewRaftConsensus()
 	case "hotstuff":
