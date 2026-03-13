@@ -26,3 +26,8 @@ vendor/
 *.test
 *.out
 go.work
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
