@@ -1,11 +1,9 @@
 package tpbft_parallel_block
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"runtime"
 	"sync"
-	"time"
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -22,6 +20,9 @@ type TPBFTParallelBlock struct {
 	running    bool
 	mu         sync.Mutex
 	lastHeight int64
+	node       *Node
+	scorer     *TrustScorer
+	validator  *ValidatorSelector
 }
 
 func NewTPBFTParallelBlock(cfg Config) *TPBFTParallelBlock {
@@ -29,8 +30,11 @@ func NewTPBFTParallelBlock(cfg Config) *TPBFTParallelBlock {
 		cfg.SubBlockK = 1
 	}
 	return &TPBFTParallelBlock{
-		base: tpbft.NewTPBFT(),
-		cfg:  cfg,
+		base:      tpbft.NewTPBFT(),
+		cfg:       cfg,
+		node:      NewNode(cfg),
+		scorer:    NewTrustScorer(cfg),
+		validator: NewValidatorSelector(cfg),
 	}
 }
 
@@ -75,14 +79,7 @@ func (p *TPBFTParallelBlock) ObserveProposal(height int64, txs [][]byte) {
 	if len(txs) == 0 {
 		return
 	}
-	start := time.Now()
-	subStart := time.Now()
-	subRoots := p.computeSubRoots(txs)
-	subMs := float64(time.Since(subStart).Microseconds()) / 1000.0
-	mergeStart := time.Now()
-	_ = merkleRootFromHashes(subRoots)
-	mergeMs := float64(time.Since(mergeStart).Microseconds()) / 1000.0
-	totalMs := float64(time.Since(start).Microseconds()) / 1000.0
+	totalMs, subMs, mergeMs := p.node.computeOnce(txs)
 	totalBytes := 0
 	for _, tx := range txs {
 		totalBytes += len(tx)
@@ -96,79 +93,4 @@ func (p *TPBFTParallelBlock) ObserveProposal(height int64, txs [][]byte) {
 		len(txs),
 		totalBytes,
 	)
-}
-
-func (p *TPBFTParallelBlock) computeSubRoots(txs [][]byte) [][]byte {
-	if p.cfg.SubBlockK <= 1 {
-		return [][]byte{merkleRootFromTxs(txs)}
-	}
-	blocks := splitTxs(txs, p.cfg.SubBlockK)
-	results := make([][]byte, len(blocks))
-	var wg sync.WaitGroup
-	for idx, block := range blocks {
-		wg.Add(1)
-		go func(i int, data [][]byte) {
-			defer wg.Done()
-			results[i] = merkleRootFromTxs(data)
-		}(idx, block)
-	}
-	wg.Wait()
-	return results
-}
-
-func splitTxs(txs [][]byte, k int) [][][]byte {
-	total := len(txs)
-	if k <= 1 || total == 0 {
-		return [][][]byte{txs}
-	}
-	base := total / k
-	rem := total % k
-	blocks := make([][][]byte, 0, k)
-	start := 0
-	for i := 0; i < k; i++ {
-		size := base
-		if i < rem {
-			size++
-		}
-		end := start + size
-		if end > total {
-			end = total
-		}
-		blocks = append(blocks, txs[start:end])
-		start = end
-	}
-	return blocks
-}
-
-func merkleRootFromTxs(txs [][]byte) []byte {
-	if len(txs) == 0 {
-		return nil
-	}
-	hashes := make([][]byte, len(txs))
-	for i, tx := range txs {
-		digest := sha256.Sum256(tx)
-		hashes[i] = digest[:]
-	}
-	return merkleRootFromHashes(hashes)
-}
-
-func merkleRootFromHashes(hashes [][]byte) []byte {
-	if len(hashes) == 0 {
-		return nil
-	}
-	current := make([][]byte, len(hashes))
-	copy(current, hashes)
-	for len(current) > 1 {
-		if len(current)%2 == 1 {
-			current = append(current, current[len(current)-1])
-		}
-		next := make([][]byte, 0, len(current)/2)
-		for i := 0; i < len(current); i += 2 {
-			pair := append(current[i], current[i+1]...)
-			digest := sha256.Sum256(pair)
-			next = append(next, digest[:])
-		}
-		current = next
-	}
-	return current[0]
 }
