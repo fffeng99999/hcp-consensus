@@ -141,6 +141,11 @@ func NewRootCmd() *cobra.Command {
 
 func addModuleInitFlags(startCmd *cobra.Command) {
 	startCmd.Flags().String("consensus-engine", "tpbft", "共识引擎类型")
+	startCmd.Flags().Int("pow-node-count", 4, "PoW 节点数量")
+	startCmd.Flags().Int("pow-difficulty", 12, "PoW 静态难度")
+	startCmd.Flags().Float64("pow-target-block-ms", 12000, "PoW 目标出块时间(ms)")
+	startCmd.Flags().Int("pow-tx-per-block", 1000, "PoW 每块交易数量")
+	startCmd.Flags().Float64("pow-orphan-base-rate", 0.01, "PoW 孤块基础概率(0-1)")
 	startCmd.Flags().Int("votor-node-count", 4, "Votor 验证者数量")
 	startCmd.Flags().Float64("votor-faulty-ratio", 0, "Votor 模拟故障比例(0-1)")
 	startCmd.Flags().Float64("votor-fast-threshold", 0.8, "Votor 快速路径阈值(0-1)")

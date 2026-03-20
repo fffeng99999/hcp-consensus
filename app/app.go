@@ -51,6 +51,7 @@ import (
 	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical"
 	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_tpbft"
 	"github.com/fffeng99999/hcp-consensus/consensus/hotstuff"
+	"github.com/fffeng99999/hcp-consensus/consensus/pow"
 	"github.com/fffeng99999/hcp-consensus/consensus/raft"
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft"
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft_parallel"
@@ -274,6 +275,14 @@ func NewApp(
 
 	var consensusEngine common.ConsensusEngine
 	switch engineType {
+	case "pow":
+		consensusEngine = pow.NewPoW(pow.Config{
+			NodeCount:      readInt("pow-node-count", 4),
+			Difficulty:     readInt("pow-difficulty", 12),
+			TargetBlockMs:  readFloat("pow-target-block-ms", 12000),
+			TxPerBlock:     readInt("pow-tx-per-block", 1000),
+			OrphanBaseRate: readFloat("pow-orphan-base-rate", 0.01),
+		})
 	case "votor":
 		consensusEngine = votor.NewVotor(votor.Config{
 			NodeCount:      readInt("votor-node-count", 4),
