@@ -141,6 +141,12 @@ func NewRootCmd() *cobra.Command {
 
 func addModuleInitFlags(startCmd *cobra.Command) {
 	startCmd.Flags().String("consensus-engine", "tpbft", "共识引擎类型")
+	startCmd.Flags().Int("votor-node-count", 4, "Votor 验证者数量")
+	startCmd.Flags().Float64("votor-faulty-ratio", 0, "Votor 模拟故障比例(0-1)")
+	startCmd.Flags().Float64("votor-fast-threshold", 0.8, "Votor 快速路径阈值(0-1)")
+	startCmd.Flags().Float64("votor-slow-threshold", 0.6, "Votor 慢速路径阈值(0-1)")
+	startCmd.Flags().Float64("votor-local-timeout-ms", 150, "Votor 本地超时(ms)")
+	startCmd.Flags().Float64("votor-base-latency-ms", 0, "Votor 基础网络时延(ms)")
 	startCmd.Flags().Int("merkle-tx-count", 1000, "并行Merkle每块交易数")
 	startCmd.Flags().Int("merkle-tx-size", 512, "并行Merkle交易大小(Bytes)")
 	startCmd.Flags().Int("merkle-k", 1, "并行Merkle子块数量")

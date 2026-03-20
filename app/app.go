@@ -55,6 +55,7 @@ import (
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft"
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft_parallel"
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft_parallel_block"
+	"github.com/fffeng99999/hcp-consensus/consensus/votor"
 )
 
 type BankAppModuleBasic struct {
@@ -273,6 +274,15 @@ func NewApp(
 
 	var consensusEngine common.ConsensusEngine
 	switch engineType {
+	case "votor":
+		consensusEngine = votor.NewVotor(votor.Config{
+			NodeCount:      readInt("votor-node-count", 4),
+			FaultyRatio:    readFloat("votor-faulty-ratio", 0.0),
+			FastThreshold:  readFloat("votor-fast-threshold", 0.8),
+			SlowThreshold:  readFloat("votor-slow-threshold", 0.6),
+			LocalTimeoutMs: readFloat("votor-local-timeout-ms", 150),
+			BaseLatencyMs:  readFloat("votor-base-latency-ms", 0),
+		})
 	case "hierarchical":
 		consensusEngine = hierarchical.NewHierarchicalConsensus(hierarchical.Config{
 			NodeCount:        readInt("hierarchical-node-count", 32),
