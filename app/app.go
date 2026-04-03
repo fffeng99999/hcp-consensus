@@ -51,6 +51,7 @@ import (
 	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical"
 	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_tpbft"
 	"github.com/fffeng99999/hcp-consensus/consensus/hotstuff"
+	"github.com/fffeng99999/hcp-consensus/consensus/ibft"
 	"github.com/fffeng99999/hcp-consensus/consensus/pow"
 	"github.com/fffeng99999/hcp-consensus/consensus/raft"
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft"
@@ -291,6 +292,16 @@ func NewApp(
 			SlowThreshold:  readFloat("votor-slow-threshold", 0.6),
 			LocalTimeoutMs: readFloat("votor-local-timeout-ms", 150),
 			BaseLatencyMs:  readFloat("votor-base-latency-ms", 0),
+		})
+	case "ibft":
+		consensusEngine = ibft.NewIBFT(ibft.Config{
+			NodeCount:     readInt("ibft-node-count", 32),
+			FaultyRatio:   readFloat("ibft-faulty-ratio", 0.0),
+			BaseLatencyMs: readFloat("ibft-base-latency-ms", 1),
+			JitterMs:      readFloat("ibft-jitter-ms", 50),
+			TimeoutMs:     readFloat("ibft-timeout-ms", 150),
+			MessageBytes:  readInt("ibft-message-bytes", 256),
+			MaxRounds:     readInt("ibft-max-rounds", 8),
 		})
 	case "hierarchical":
 		consensusEngine = hierarchical.NewHierarchicalConsensus(hierarchical.Config{
