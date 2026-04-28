@@ -3,70 +3,120 @@ package hotstuff
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
-	"cosmossdk.io/math"
+	cosmossdk_math "cosmossdk.io/math"
 	abci "github.com/cometbft/cometbft/abci/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
-// StakingKeeper 定义了共识模块从质押模块需要的接口能力
 type StakingKeeper interface {
 	GetValidatorByConsAddr(ctx context.Context, consAddr sdk.ConsAddress) (stakingtypes.Validator, error)
 	GetAllValidators(ctx context.Context) ([]stakingtypes.Validator, error)
-	TotalBondedTokens(ctx context.Context) (math.Int, error)
+	TotalBondedTokens(ctx context.Context) (cosmossdk_math.Int, error)
 	GetValidator(ctx context.Context, addr sdk.ValAddress) (stakingtypes.Validator, error)
 }
 
-// HotStuffConsensus 实现了 HotStuff 共识引擎
+type Config struct {
+	NodeCount          int
+	FaultyRatio        float64
+	ViewTimeoutMs      float64
+	TimeoutExponent    float64
+	BaseLatencyMs      float64
+	JitterMs           float64
+	MessageBytes       int
+	PipelineDepth      int
+	EnableThresholdSig bool
+	MaxValidators      int
+}
+
+func normalizeConfig(cfg Config) Config {
+	cfg.NodeCount = maxInt(1, readEnvInt("HOTSTUFF_NODE_COUNT", cfg.NodeCount))
+	cfg.FaultyRatio = clamp01(readEnvFloat("HOTSTUFF_FAULTY_RATIO", cfg.FaultyRatio))
+	cfg.ViewTimeoutMs = readEnvFloat("HOTSTUFF_VIEW_TIMEOUT_MS", cfg.ViewTimeoutMs)
+	cfg.TimeoutExponent = readEnvFloat("HOTSTUFF_TIMEOUT_EXPONENT", cfg.TimeoutExponent)
+	cfg.BaseLatencyMs = readEnvFloat("HOTSTUFF_BASE_LATENCY_MS", cfg.BaseLatencyMs)
+	cfg.JitterMs = readEnvFloat("HOTSTUFF_JITTER_MS", cfg.JitterMs)
+	cfg.MessageBytes = readEnvInt("HOTSTUFF_MESSAGE_BYTES", cfg.MessageBytes)
+	cfg.PipelineDepth = readEnvInt("HOTSTUFF_PIPELINE_DEPTH", cfg.PipelineDepth)
+	cfg.EnableThresholdSig = readEnvBool("HOTSTUFF_ENABLE_THRESHOLD_SIG", cfg.EnableThresholdSig)
+	cfg.MaxValidators = readEnvInt("HOTSTUFF_MAX_VALIDATORS", cfg.MaxValidators)
+
+	if cfg.NodeCount <= 0 {
+		cfg.NodeCount = 4
+	}
+	if cfg.ViewTimeoutMs <= 0 {
+		cfg.ViewTimeoutMs = 5000
+	}
+	if cfg.TimeoutExponent <= 0 {
+		cfg.TimeoutExponent = 2.0
+	}
+	if cfg.BaseLatencyMs <= 0 {
+		cfg.BaseLatencyMs = 1.0
+	}
+	if cfg.JitterMs < 0 {
+		cfg.JitterMs = 0
+	}
+	if cfg.MessageBytes <= 0 {
+		cfg.MessageBytes = 256
+	}
+	if cfg.PipelineDepth <= 0 {
+		cfg.PipelineDepth = 3
+	}
+	if cfg.MaxValidators <= 0 {
+		cfg.MaxValidators = 100
+	}
+	return cfg
+}
+
 type HotStuffConsensus struct {
 	mu      sync.RWMutex
 	running bool
 
-	// HotStuff 共识特有的字段
 	Node              *HotStuffNode
 	TrustScorer       *TrustScorer
 	ValidatorSelector *ValidatorSelector
 
-	// Config 保存 HotStuff 共识相关配置
-	viewTimeout time.Duration
-
+	Config        Config
+	peers         []string
 	stakingKeeper StakingKeeper
 }
 
-// NewHotStuffConsensus 创建一个新的 HotStuff 共识实例
-func NewHotStuffConsensus() *HotStuffConsensus {
-	// 初始化信任评分器和验证人选择器
-	scorer := NewTrustScorer()
-	// 默认验证人列表为空，后续会根据实际状态更新
-	selector := NewValidatorSelector([]string{"local-node"})
+func NewHotStuffConsensus(cfg Config) *HotStuffConsensus {
+	cfg = normalizeConfig(cfg)
 
-	// Node 使用空配置初始化，如果独立运行需要在外部设置具体参数
-	node := NewHotStuffNode("local-node", []string{})
-	node.ValidatorSelector = selector
+	peers := make([]string, cfg.NodeCount-1)
+	for i := range peers {
+		peers[i] = fmt.Sprintf("node%d", i+1)
+	}
+
+	scorer := NewTrustScorer(cfg)
+	selector := NewValidatorSelector(cfg)
+	node := NewHotStuffNode(cfg, scorer, selector)
 
 	return &HotStuffConsensus{
 		Node:              node,
 		TrustScorer:       scorer,
 		ValidatorSelector: selector,
-		viewTimeout:       1000 * time.Millisecond,
+		Config:            cfg,
+		peers:             peers,
 	}
 }
 
-// SetStakingKeeper 设置质押模块依赖
 func (h *HotStuffConsensus) SetStakingKeeper(k StakingKeeper) {
 	h.stakingKeeper = k
 }
 
-// Start 启动共识引擎
 func (h *HotStuffConsensus) Start() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	if h.running {
-		return fmt.Errorf("HotStuff engine already running")
+		return nil
 	}
 
 	h.running = true
@@ -74,7 +124,6 @@ func (h *HotStuffConsensus) Start() error {
 	return nil
 }
 
-// Stop 停止共识引擎
 func (h *HotStuffConsensus) Stop() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -88,62 +137,186 @@ func (h *HotStuffConsensus) Stop() error {
 }
 
 func (h *HotStuffConsensus) runLoop() {
-	ticker := time.NewTicker(h.viewTimeout)
-	defer ticker.Stop()
+	viewTicker := time.NewTicker(time.Duration(h.Config.ViewTimeoutMs) * time.Millisecond)
+	defer viewTicker.Stop()
 
 	for h.running {
 		select {
-		case <-ticker.C:
-			// 处理视图超时
-			h.newView()
+		case <-viewTicker.C:
+			h.handleViewTimeout()
 		default:
 			time.Sleep(100 * time.Millisecond)
 		}
 	}
 }
 
-func (h *HotStuffConsensus) newView() {
+func (h *HotStuffConsensus) handleViewTimeout() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	// 增加节点当前视图号
+	leader := h.ValidatorSelector.GetLeader(h.Node.View)
+	if h.Node.ID != leader {
+		nextView := h.Node.View + 1
+		nextLeader := h.ValidatorSelector.GetLeader(nextView)
+
+		fmt.Printf("[Timeout] Node %s timeouts view %d, sending to next leader %s\n",
+			h.Node.ID, h.Node.View, nextLeader)
+
+		h.Node.TimeoutCount++
+		h.Node.LastViewChange = time.Now()
+	} else {
+		fmt.Printf("[Timeout] Leader %s view %d timeout\n", h.Node.ID, h.Node.View)
+	}
+}
+
+func (h *HotStuffConsensus) NewView() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	h.Node.View++
 	currentView := h.Node.View
 
-	// 获取新视图对应的领导者
 	leader := h.ValidatorSelector.GetLeader(currentView)
+	fmt.Printf("[NewView] Starting View %d, Leader: %s\n", currentView, leader)
 
-	fmt.Printf("Starting View %d, Leader: %s\n", currentView, leader)
-
-	// 创建 NewView 消息
-	// 在 HotStuff 中，副本会向下一任领导者发送 NEW-VIEW 消息
 	msg := &ConsensusMessage{
 		Type:          MessageTypeNewView,
 		View:          currentView,
 		NodeID:        h.Node.ID,
-		Justification: h.Node.PrepareQC, // Send highest QC
+		Justification: h.Node.JustifiedQC,
 	}
 
-	// 在真实网络中，这里会向领导者发送消息
-	// 当前实现通过自我处理或打印日志进行模拟
 	if h.Node.ID == leader {
-		// 当前节点为领导者，直接处理来自自身的 NewView 消息
-		// 实际实现中应等待至少 N-f 个 NewView 消息
 		h.Node.HandleMessage(msg)
 	} else {
-		// 向领导者发送消息（模拟）
-		// network.Send(leader, msg)
-		fmt.Printf("Sending NewView to leader %s\n", leader)
+		fmt.Printf("[NewView] Node %s sends NewView to leader %s\n", h.Node.ID, leader)
 	}
 }
 
-// BeginBlock 实现 ConsensusEngine 接口，在区块开始时被调用
-func (h *HotStuffConsensus) BeginBlock(ctx sdk.Context) {
-	// 在区块开始时执行的逻辑，例如检查作恶证据等
+func (h *HotStuffConsensus) Propose() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	leader := h.ValidatorSelector.GetLeader(h.Node.View)
+	if h.Node.ID != leader {
+		fmt.Printf("[Propose] Node %s is not leader for view %d\n", h.Node.ID, h.Node.View)
+		return
+	}
+
+	h.Node.Propose(h.Node.View)
 }
 
-// EndBlock 实现 ConsensusEngine 接口，在区块结束时被调用
+func (h *HotStuffConsensus) BeginBlock(ctx sdk.Context) {
+}
+
 func (h *HotStuffConsensus) EndBlock(ctx sdk.Context) []abci.ValidatorUpdate {
-	// 在区块结束时执行的逻辑，例如更新验证人集合
+	metrics := h.Node.ComputeMetrics(ctx.BlockHeight())
+	fmt.Printf(
+		"hotstuff_metrics block_time_ms=%.6f prepare_ms=%.6f precommit_ms=%.6f commit_ms=%.6f view_changes=%d total_messages=%d comm_bytes=%.0f node_count=%d f=%d quorum=%d faulty_ratio=%.4f view_timeout_ms=%.6f base_latency_ms=%.6f height=%d\n",
+		metrics.BlockTimeMs,
+		metrics.PrepareMs,
+		metrics.PreCommitMs,
+		metrics.CommitMs,
+		metrics.ViewChanges,
+		metrics.TotalMessages,
+		metrics.CommBytes,
+		metrics.NodeCount,
+		metrics.F,
+		metrics.Quorum,
+		metrics.FaultyRatio,
+		metrics.ViewTimeoutMs,
+		metrics.BaseLatencyMs,
+		ctx.BlockHeight(),
+	)
+
+	if h.stakingKeeper != nil {
+		h.updateValidatorSet(ctx)
+	}
 	return nil
+}
+
+func (h *HotStuffConsensus) updateValidatorSet(ctx sdk.Context) {
+	validators, err := h.stakingKeeper.GetAllValidators(ctx)
+	if err != nil {
+		return
+	}
+
+	var addrs []string
+	for _, v := range validators {
+		if len(addrs) >= h.Config.MaxValidators {
+			break
+		}
+		addrs = append(addrs, v.OperatorAddress)
+	}
+
+	if len(addrs) > 0 {
+		h.ValidatorSelector.UpdateValidators(addrs)
+	}
+}
+
+func (h *HotStuffConsensus) GetNode() *HotStuffNode {
+	return h.Node
+}
+
+func (h *HotStuffConsensus) GetStatus() map[string]interface{} {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	return map[string]interface{}{
+		"running":         h.running,
+		"view":            h.Node.View,
+		"height":          h.Node.Height,
+		"leader":          h.ValidatorSelector.GetLeader(h.Node.View),
+		"locked_qc":       safeView(h.Node.LockedQC),
+		"prepare_qc":      safeView(h.Node.PrepareQC),
+		"commit_qc":       safeView(h.Node.CommitQC),
+		"justified_qc":    safeView(h.Node.JustifiedQC),
+		"timeout_count":   h.Node.TimeoutCount,
+		"total_nodes":     h.Node.Total,
+		"fault_tolerance": h.Node.F,
+	}
+}
+
+func readEnvInt(key string, defaultVal int) int {
+	if val := os.Getenv(key); val != "" {
+		if i, err := strconv.Atoi(val); err == nil {
+			return i
+		}
+	}
+	return defaultVal
+}
+
+func readEnvFloat(key string, defaultVal float64) float64 {
+	if val := os.Getenv(key); val != "" {
+		if f, err := strconv.ParseFloat(val, 64); err == nil {
+			return f
+		}
+	}
+	return defaultVal
+}
+
+func readEnvBool(key string, defaultVal bool) bool {
+	if val := os.Getenv(key); val != "" {
+		if b, err := strconv.ParseBool(val); err == nil {
+			return b
+		}
+	}
+	return defaultVal
+}
+
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

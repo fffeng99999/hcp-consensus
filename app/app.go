@@ -339,9 +339,29 @@ func NewApp(
 			BatchSize:            readInt("hierarchical-batch-size", 200),
 		})
 	case "raft":
-		consensusEngine = raft.NewRaftConsensus()
+		consensusEngine = raft.NewRaftConsensus(raft.Config{
+			NodeCount:              readInt("raft-node-count", 4),
+			ElectionTimeoutMs:      readFloat("raft-election-timeout-ms", 150),
+			HeartbeatIntervalMs:    readFloat("raft-heartbeat-interval-ms", 50),
+			ElectionTimeoutRangeMs: readFloat("raft-election-timeout-range-ms", 150),
+			SnapshotDistance:       readInt("raft-snapshot-distance", 10000),
+			MaxLogEntriesPerRPC:    readInt("raft-max-log-entries-per-rpc", 500),
+			MessageBytes:           readInt("raft-message-bytes", 256),
+			FaultyRatio:            readFloat("raft-faulty-ratio", 0),
+			MaxValidators:          readInt("raft-max-validators", 100),
+		})
 	case "hotstuff":
-		consensusEngine = hotstuff.NewHotStuffConsensus()
+		consensusEngine = hotstuff.NewHotStuffConsensus(hotstuff.Config{
+			NodeCount:          readInt("hotstuff-node-count", 4),
+			FaultyRatio:        readFloat("hotstuff-faulty-ratio", 0),
+			ViewTimeoutMs:      readFloat("hotstuff-view-timeout-ms", 5000),
+			TimeoutExponent:    readFloat("hotstuff-timeout-exponent", 2.0),
+			BaseLatencyMs:      readFloat("hotstuff-base-latency-ms", 1),
+			JitterMs:           readFloat("hotstuff-jitter-ms", 0.5),
+			MessageBytes:       readInt("hotstuff-message-bytes", 256),
+			PipelineDepth:      readInt("hotstuff-pipeline-depth", 3),
+			EnableThresholdSig: readBool("hotstuff-enable-threshold-sig", false),
+		})
 	case "tpbft-parallel":
 		consensusEngine = tpbft_parallel.NewTPBFTParallel(tpbft_parallel.Config{
 			TxCount:   readInt("merkle-tx-count", 1000),
