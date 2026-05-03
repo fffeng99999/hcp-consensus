@@ -1,0 +1,40 @@
+package hierarchical_hotspot_tpbft
+
+// ConsensusMessage 描述分层热点感知 TPBFT 的抽象阶段消息。
+type ConsensusMessage struct {
+	Phase      string
+	FromNodeID string
+	ToNodeID   string
+	GroupID    int
+	BatchSize  int
+}
+
+// Metrics 描述分层热点感知 TPBFT 每轮输出的综合指标。
+type Metrics struct {
+	PrePrepareMs         float64
+	PrepareMs            float64
+	CommitMs             float64
+	CommBytes            float64
+	TotalMessages        float64
+	SigGenCount          float64
+	SigVerifyCount       float64
+	SigGenTimeMs         float64
+	SigVerifyTimeMs      float64
+	AggregationTimeMs    float64
+	VerifyTimeMs         float64
+	SigPerNode           float64
+	SigOpsPerTx          float64
+	BatchSize            int
+	BatchVerify          float64
+	VerifyGain           float64
+	SigGenParallelism    float64
+	SigVerifyParallelism float64
+	SigAggParallelism    float64
+	OuterMode            string
+	SigAlgo              string
+	OuterAlgo            string
+	// 热点感知新增指标
+	CrossGroupRatio float64
+	GroupingStrategy string
+	ZipfAlpha        float64
+}
