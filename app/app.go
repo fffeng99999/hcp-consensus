@@ -56,6 +56,7 @@ import (
 	"github.com/fffeng99999/hcp-consensus/consensus/raft"
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft"
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft_parallel"
+	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_tpbft_parallel_block"
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft_parallel_block"
 	"github.com/fffeng99999/hcp-consensus/consensus/votor"
 )
@@ -373,6 +374,32 @@ func NewApp(
 		consensusEngine = tpbft_parallel_block.NewTPBFTParallelBlock(tpbft_parallel_block.Config{
 			SubBlockK: readInt("merkle-k", 1),
 		})
+	case "hierarchical-tpbft-parallel-block":
+		consensusEngine = hierarchical_tpbft_parallel_block.NewHierarchicalTPBFTParallelBlock(hierarchical_tpbft_parallel_block.Config{
+			NodeCount:            readInt("hierarchical-node-count", 32),
+			GroupCount:           readInt("hierarchical-group-count", 0),
+			GroupSize:            readInt("hierarchical-group-size", 0),
+			MessageBytes:         readInt("hierarchical-message-bytes", 256),
+			BaseLatencyMs:        readFloat("hierarchical-base-latency-ms", 1),
+			PhaseWeightInner:     readFloat("hierarchical-phase-weight-inner", 1),
+			PhaseWeightOuter:     readFloat("hierarchical-phase-weight-outer", 1),
+			SigAlgorithm:         readString("hierarchical-sig-algo", "bls"),
+			SigGenMs:             readFloat("hierarchical-sig-gen-ms", 0),
+			SigVerifyMs:          readFloat("hierarchical-sig-verify-ms", 0),
+			SigAggMs:             readFloat("hierarchical-sig-agg-ms", 0),
+			OuterSigMode:         readString("hierarchical-outer-mode", "threshold"),
+			OuterSigAlgorithm:    readString("hierarchical-outer-sig-algo", ""),
+			OuterSigGenMs:        readFloat("hierarchical-outer-sig-gen-ms", 0),
+			OuterSigVerifyMs:     readFloat("hierarchical-outer-sig-verify-ms", 0),
+			OuterSigAggMs:        readFloat("hierarchical-outer-sig-agg-ms", 0),
+			BatchVerify:          readBool("hierarchical-batch-verify", false),
+			BatchVerifyGain:      readFloat("hierarchical-batch-verify-gain", 1),
+			SigGenParallelism:    readFloat("hierarchical-sig-gen-parallelism", 1),
+			SigVerifyParallelism: readFloat("hierarchical-sig-verify-parallelism", 1),
+			SigAggParallelism:    readFloat("hierarchical-sig-agg-parallelism", 1),
+			BatchSize:            readInt("hierarchical-batch-size", 200),
+			SubBlockK:            readInt("merkle-k", 1),
+		})
 	case "tpbft":
 		fallthrough
 	default:
@@ -383,6 +410,10 @@ func NewApp(
 	if engine, ok := consensusEngine.(*tpbft_parallel_block.TPBFTParallelBlock); ok {
 		parallelEngine = engine
 	}
+	var hierarchicalParallelEngine *hierarchical_tpbft_parallel_block.HierarchicalTPBFTParallelBlock
+	if engine, ok := consensusEngine.(*hierarchical_tpbft_parallel_block.HierarchicalTPBFTParallelBlock); ok {
+		hierarchicalParallelEngine = engine
+	}
 	proposalHandler := baseapp.NewDefaultProposalHandler(bApp.Mempool(), bApp)
 	prepareHandler := proposalHandler.PrepareProposalHandler()
 	bApp.SetPrepareProposal(func(ctx sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
@@ -390,12 +421,18 @@ func NewApp(
 		if err == nil && parallelEngine != nil {
 			parallelEngine.ObserveProposal(req.Height, resp.Txs)
 		}
+		if err == nil && hierarchicalParallelEngine != nil {
+			hierarchicalParallelEngine.ObserveProposal(req.Height, resp.Txs)
+		}
 		return resp, err
 	})
 	processHandler := proposalHandler.ProcessProposalHandler()
 	bApp.SetProcessProposal(func(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 		if parallelEngine != nil {
 			parallelEngine.ObserveProposal(req.Height, req.Txs)
+		}
+		if hierarchicalParallelEngine != nil {
+			hierarchicalParallelEngine.ObserveProposal(req.Height, req.Txs)
 		}
 		return processHandler(ctx, req)
 	})
@@ -499,6 +536,9 @@ func NewApp(
 		engine.SetStakingKeeper(app.StakingKeeper)
 	}
 	if engine, ok := app.ConsensusEngine.(*tpbft_parallel_block.TPBFTParallelBlock); ok {
+		engine.SetStakingKeeper(app.StakingKeeper)
+	}
+	if engine, ok := app.ConsensusEngine.(*hierarchical_tpbft_parallel_block.HierarchicalTPBFTParallelBlock); ok {
 		engine.SetStakingKeeper(app.StakingKeeper)
 	}
 
