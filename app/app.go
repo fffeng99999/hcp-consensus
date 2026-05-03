@@ -57,6 +57,7 @@ import (
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft"
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft_parallel"
 	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_hotspot_tpbft"
+	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_lightweight_tpbft"
 	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_tpbft_parallel_block"
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft_parallel_block"
 	"github.com/fffeng99999/hcp-consensus/consensus/votor"
@@ -374,6 +375,36 @@ func NewApp(
 	case "tpbft-parallel-block":
 		consensusEngine = tpbft_parallel_block.NewTPBFTParallelBlock(tpbft_parallel_block.Config{
 			SubBlockK: readInt("merkle-k", 1),
+		})
+	case "hierarchical-lightweight-tpbft":
+		consensusEngine = hierarchical_lightweight_tpbft.NewHierarchicalLightweightTPBFT(hierarchical_lightweight_tpbft.Config{
+			NodeCount:            readInt("hierarchical-node-count", 32),
+			GroupCount:           readInt("hierarchical-group-count", 0),
+			GroupSize:            readInt("hierarchical-group-size", 0),
+			MessageBytes:         readInt("hierarchical-message-bytes", 256),
+			BaseLatencyMs:        readFloat("hierarchical-base-latency-ms", 1),
+			PhaseWeightInner:     readFloat("hierarchical-phase-weight-inner", 1),
+			PhaseWeightOuter:     readFloat("hierarchical-phase-weight-outer", 1),
+			SigAlgorithm:         readString("hierarchical-sig-algo", "bls"),
+			SigGenMs:             readFloat("hierarchical-sig-gen-ms", 0),
+			SigVerifyMs:          readFloat("hierarchical-sig-verify-ms", 0),
+			SigAggMs:             readFloat("hierarchical-sig-agg-ms", 0),
+			OuterSigMode:         readString("hierarchical-outer-mode", "threshold"),
+			OuterSigAlgorithm:    readString("hierarchical-outer-sig-algo", ""),
+			OuterSigGenMs:        readFloat("hierarchical-outer-sig-gen-ms", 0),
+			OuterSigVerifyMs:     readFloat("hierarchical-outer-sig-verify-ms", 0),
+			OuterSigAggMs:        readFloat("hierarchical-outer-sig-agg-ms", 0),
+			BatchVerify:          readBool("hierarchical-batch-verify", false),
+			BatchVerifyGain:      readFloat("hierarchical-batch-verify-gain", 1),
+			SigGenParallelism:    readFloat("hierarchical-sig-gen-parallelism", 1),
+			SigVerifyParallelism: readFloat("hierarchical-sig-verify-parallelism", 1),
+			SigAggParallelism:    readFloat("hierarchical-sig-agg-parallelism", 1),
+			BatchSize:            readInt("hierarchical-batch-size", 200),
+			SubConsensusType:     readString("sub-consensus", "pbft"),
+			RaftHeartbeatMs:      readFloat("raft-heartbeat-ms", 50),
+			RaftElectionMs:       readFloat("raft-election-ms", 200),
+			FaultInject:          readBool("fault-inject", false),
+			FaultAfterSec:        readInt("fault-after-sec", 60),
 		})
 	case "hierarchical-hotspot-tpbft":
 		consensusEngine = hierarchical_hotspot_tpbft.NewHierarchicalHotspotTPBFT(hierarchical_hotspot_tpbft.Config{
