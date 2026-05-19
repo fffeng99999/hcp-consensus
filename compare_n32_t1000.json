@@ -1,0 +1,50 @@
+{
+  "hotstuff": {
+    "EngineType": "hotstuff",
+    "NodeCount": 32,
+    "TxCount": 1000,
+    "DurationSec": 12.2832237,
+    "TPS": 81.41185281840954,
+    "P50LatencyMs": 109.386,
+    "P95LatencyMs": 202.609,
+    "P99LatencyMs": 202.609,
+    "TotalMessages": 4410,
+    "TotalBytes": 206284033
+  },
+  "pbft": {
+    "EngineType": "pbft",
+    "NodeCount": 32,
+    "TxCount": 1000,
+    "DurationSec": 66.1969474,
+    "TPS": 15.106436765995044,
+    "P50LatencyMs": 286.924,
+    "P95LatencyMs": 384.654,
+    "P99LatencyMs": 388.083,
+    "TotalMessages": 669864,
+    "TotalBytes": 264065271
+  },
+  "raft": {
+    "EngineType": "raft",
+    "NodeCount": 32,
+    "TxCount": 1000,
+    "DurationSec": 12.2790225,
+    "TPS": 81.439707435995,
+    "P50LatencyMs": 102.708,
+    "P95LatencyMs": 191.88,
+    "P99LatencyMs": 200.502,
+    "TotalMessages": 7958,
+    "TotalBytes": 26228254
+  },
+  "tpbft": {
+    "EngineType": "tpbft",
+    "NodeCount": 32,
+    "TxCount": 1000,
+    "DurationSec": 16.9171853,
+    "TPS": 59.11148824503329,
+    "P50LatencyMs": 159.333,
+    "P95LatencyMs": 279.786,
+    "P99LatencyMs": 288.135,
+    "TotalMessages": 92300,
+    "TotalBytes": 53177749
+  }
+}
