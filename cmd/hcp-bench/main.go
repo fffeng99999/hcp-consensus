@@ -1,13 +1,23 @@
 package main
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync/atomic"
+	"time"
 
+	"github.com/fffeng99999/hcp-consensus/engine/core"
 	"github.com/fffeng99999/hcp-consensus/engine/factory"
 )
 
@@ -22,6 +32,8 @@ func main() {
 		fmt.Println("  saturation <engine> <nodes> [outdir]                运行饱和点扫描")
 		fmt.Println("  group-scan <nodes> <txs> [outdir]                   运行分组参数扫描")
 		fmt.Println("  model-fit <data-json> [outfile]                     拟合尾延迟模型")
+		fmt.Println("  serve <engine> <nodes> <listen> [groups]            启动本地 engine 集群 HTTP 负载入口")
+		fmt.Println("  smoke [outfile]                                      验证实验所需 engine 的最小可运行性")
 		fmt.Println("Engines: pbft, tpbft, hotstuff, raft, cometbft, hierarchical_tpbft, hierarchical_lightweight_tpbft")
 		os.Exit(1)
 	}
@@ -42,10 +54,233 @@ func main() {
 		runGroupScan()
 	case "model-fit":
 		runModelFit()
+	case "serve":
+		runServe()
+	case "smoke":
+		runSmoke()
 	default:
 		fmt.Printf("Unknown command: %s\n", cmd)
 		os.Exit(1)
 	}
+}
+
+type smokeResult struct {
+	Name   string                   `json:"name"`
+	Engine string                   `json:"engine"`
+	Nodes  int                      `json:"nodes"`
+	Txs    int                      `json:"txs"`
+	Groups int                      `json:"groups,omitempty"`
+	Passed bool                     `json:"passed"`
+	Error  string                   `json:"error,omitempty"`
+	Result *factory.BenchmarkResult `json:"result,omitempty"`
+}
+
+func runSmoke() {
+	outfile := ""
+	if len(os.Args) >= 3 {
+		outfile = os.Args[2]
+	}
+	cases := []struct {
+		name   string
+		engine factory.EngineType
+		nodes  int
+		txs    int
+		groups int
+	}{
+		{"PBFT baseline", factory.EnginePBFT, 4, 40, 0},
+		{"tPBFT trust-filtered PBFT", factory.EngineTPBFT, 4, 40, 0},
+		{"HotStuff chained BFT", factory.EngineHotStuff, 4, 40, 0},
+		{"Raft crash-fault tolerant", factory.EngineRaft, 4, 40, 0},
+		{"CometBFT-like BFT", factory.EngineCometBFT, 4, 40, 0},
+		{"Hierarchical tPBFT", factory.EngineHierarchicalTPBFT, 8, 40, 2},
+		{"Hierarchical lightweight tPBFT", factory.EngineHierarchicalLightweight, 8, 40, 2},
+	}
+
+	results := make([]smokeResult, 0, len(cases))
+	failed := false
+	for _, tc := range cases {
+		fmt.Printf("Smoke: %s engine=%s nodes=%d txs=%d\n", tc.name, tc.engine, tc.nodes, tc.txs)
+		var res *factory.BenchmarkResult
+		var err error
+		if tc.groups > 0 {
+			innerType := ""
+			if tc.engine == factory.EngineHierarchicalLightweight {
+				innerType = "raft"
+			}
+			res, err = factory.RunBenchmarkWithGroup(tc.engine, tc.nodes, tc.groups, innerType, tc.txs, 250, 5.0, 1000)
+		} else {
+			res, err = factory.RunBenchmark(tc.engine, tc.nodes, tc.txs, 250, 5.0, 1000)
+		}
+		item := smokeResult{
+			Name:   tc.name,
+			Engine: string(tc.engine),
+			Nodes:  tc.nodes,
+			Txs:    tc.txs,
+			Groups: tc.groups,
+			Result: res,
+		}
+		if err != nil {
+			item.Error = err.Error()
+		} else if res == nil {
+			item.Error = "empty benchmark result"
+		} else if res.TxCount != tc.txs {
+			item.Error = fmt.Sprintf("tx count mismatch: got %d want %d", res.TxCount, tc.txs)
+		} else if res.TotalMessages == 0 {
+			item.Error = "no consensus network messages recorded"
+		} else if res.DurationSec <= 0 || res.TPS <= 0 {
+			item.Error = "non-positive duration or TPS"
+		} else {
+			item.Passed = true
+		}
+		if !item.Passed {
+			failed = true
+			fmt.Printf("  FAIL: %s\n", item.Error)
+		} else {
+			fmt.Printf("  PASS: TPS=%.2f P99=%.2fms messages=%d\n", res.TPS, res.P99LatencyMs, res.TotalMessages)
+		}
+		results = append(results, item)
+	}
+
+	summary := map[string]any{
+		"passed":  !failed,
+		"results": results,
+	}
+	if outfile != "" {
+		saveJSON(outfile, summary)
+	}
+	if failed {
+		os.Exit(1)
+	}
+}
+
+func runServe() {
+	if len(os.Args) < 5 {
+		fmt.Println("Usage: hcp-bench serve <engine> <nodes> <listen> [groups]")
+		fmt.Println("Example: hcp-bench serve raft 8 127.0.0.1:8080")
+		os.Exit(1)
+	}
+	engine := factory.EngineType(os.Args[2])
+	nodes, _ := strconv.Atoi(os.Args[3])
+	listen := os.Args[4]
+	groups := 0
+	if len(os.Args) >= 6 {
+		groups, _ = strconv.Atoi(os.Args[5])
+	}
+
+	var cluster interface {
+		StartAll() error
+		StopAll()
+		SubmitTx(*core.Tx) error
+		GetAllStatus() map[string]core.EngineStatus
+	}
+	var netMetrics func() core.NetworkMetrics
+	var err error
+	if groups > 0 {
+		c, buildErr := factory.BuildClusterWithGroup(engine, nodes, groups, "", 5.0, 1000)
+		err = buildErr
+		if c != nil {
+			cluster = c
+			netMetrics = c.Network.GetMetrics
+		}
+	} else {
+		c, buildErr := factory.BuildCluster(engine, nodes, 5.0, 1000)
+		err = buildErr
+		if c != nil {
+			cluster = c
+			netMetrics = c.Network.GetMetrics
+		}
+	}
+	if err != nil {
+		fmt.Printf("build cluster failed: %v\n", err)
+		os.Exit(1)
+	}
+	if err := cluster.StartAll(); err != nil {
+		fmt.Printf("start cluster failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer cluster.StopAll()
+
+	var accepted uint64
+	startedAt := time.Now()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"ok": true})
+	})
+	mux.HandleFunc("/tx", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		seq := atomic.AddUint64(&accepted, 1)
+		tx := core.NewTx(body, clientID(r.RemoteAddr), seq)
+		tx.SubmitTime = time.Now()
+		if err := cluster.SubmitTx(tx); err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "tx_id": tx.ID, "seq": seq})
+	})
+	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+		status := cluster.GetAllStatus()
+		var sample core.EngineStatus
+		for _, s := range status {
+			if s.IsLeader {
+				sample = s
+				break
+			}
+		}
+		if sample.NodeID == "" {
+			for _, s := range status {
+				sample = s
+				break
+			}
+		}
+		writeJSON(w, map[string]any{
+			"engine":        string(engine),
+			"nodes":         nodes,
+			"groups":        groups,
+			"accepted_txs":  atomic.LoadUint64(&accepted),
+			"uptime_s":      time.Since(startedAt).Seconds(),
+			"sample_status": sample,
+			"node_status":   status,
+			"network":       netMetrics(),
+		})
+	})
+
+	server := &http.Server{Addr: listen, Handler: mux}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = server.Shutdown(shutdownCtx)
+	}()
+
+	fmt.Printf("hcp-bench serve: engine=%s nodes=%d groups=%d listen=%s\n", engine, nodes, groups, listen)
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		fmt.Printf("http server failed: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func clientID(remoteAddr string) string {
+	remoteAddr = strings.TrimSpace(remoteAddr)
+	if remoteAddr == "" {
+		return "loadgen"
+	}
+	sum := sha256.Sum256([]byte(remoteAddr))
+	return "loadgen-" + hex.EncodeToString(sum[:4])
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func runBenchmark() {
