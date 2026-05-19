@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fffeng99999/hcp-consensus/engine/cometbft"
 	"github.com/fffeng99999/hcp-consensus/engine/common"
 	"github.com/fffeng99999/hcp-consensus/engine/core"
 	"github.com/fffeng99999/hcp-consensus/engine/hierarchical"
@@ -26,6 +27,7 @@ const (
 	EngineTPBFT                   EngineType = "tpbft"
 	EngineHotStuff                EngineType = "hotstuff"
 	EngineRaft                    EngineType = "raft"
+	EngineCometBFT                EngineType = "cometbft"
 	EngineHierarchicalTPBFT       EngineType = "hierarchical_tpbft"
 	EngineHierarchicalLightweight EngineType = "hierarchical_lightweight_tpbft"
 	EngineTPBFTParallel           EngineType = "tpbft_parallel"
@@ -42,6 +44,8 @@ func CreateEngine(et EngineType) (core.ConsensusEngine, error) {
 		return hotstuff.NewHotStuff(), nil
 	case EngineRaft:
 		return raft.NewRaft(), nil
+	case EngineCometBFT:
+		return cometbft.NewCometBFT(), nil
 	case EngineHierarchicalTPBFT:
 		return hierarchical.NewHierarchicalTPBFT(4, "pbft", 0.6), nil
 	case EngineHierarchicalLightweight:
@@ -64,102 +68,6 @@ func CreateEngineWithGroup(et EngineType, groupCount int, innerType string) (cor
 	default:
 		return CreateEngine(et)
 	}
-}
-
-// RunBenchmarkWithGroup 运行带分组参数的基准测试
-func RunBenchmarkWithGroup(et EngineType, nodeCount int, groupCount int, innerType string, txCount int, txSize int, latencyMs, bandwidth float64) (*BenchmarkResult, error) {
-	actualLatency := 5.0
-	if latencyMs > 0 {
-		actualLatency = latencyMs
-	}
-	cluster, err := BuildClusterWithGroup(et, nodeCount, groupCount, innerType, actualLatency, bandwidth)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := cluster.StartAll(); err != nil {
-		return nil, err
-	}
-	defer cluster.StopAll()
-
-	time.Sleep(50 * time.Millisecond)
-
-	durationSec := 5
-	if txCount <= 100 {
-		durationSec = 2
-	}
-	targetTPS := float64(txCount) / float64(durationSec)
-	intervalMs := 1000.0 / targetTPS
-
-	start := time.Now()
-	sent := 0
-	for i := 0; i < txCount; i++ {
-		payload := make([]byte, txSize)
-		rand.Read(payload)
-		tx := core.NewTx(payload, fmt.Sprintf("client-%d", i%100), uint64(i))
-		tx.From = "client"
-		tx.SubmitTime = time.Now()
-		cluster.SubmitTx(tx)
-		sent++
-		if intervalMs > 0 {
-			time.Sleep(time.Duration(intervalMs * float64(time.Millisecond)))
-		}
-	}
-
-	time.Sleep(500 * time.Millisecond)
-	timeout := time.Duration(15) * time.Second
-	if nodeCount >= 32 {
-		timeout = 30 * time.Second
-	}
-
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		allDone := true
-		for _, pool := range cluster.TxPools {
-			if pool.PendingCount() > 0 {
-				allDone = false
-				break
-			}
-		}
-		if allDone {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	elapsed := time.Since(start).Seconds()
-	statusMap := cluster.GetAllStatus()
-	var sampleStatus core.EngineStatus
-	for _, s := range statusMap {
-		if s.IsLeader {
-			sampleStatus = s
-			break
-		}
-	}
-	if sampleStatus.NodeID == "" {
-		for _, s := range statusMap {
-			sampleStatus = s
-			break
-		}
-	}
-	netMetrics := cluster.Network.GetMetrics()
-	actualTPS := float64(sent) / elapsed
-	if actualTPS > float64(sent) {
-		actualTPS = float64(sent)
-	}
-
-	return &BenchmarkResult{
-		EngineType:     string(et),
-		NodeCount:      nodeCount,
-		TxCount:        sent,
-		DurationSec:    elapsed,
-		TPS:            actualTPS,
-		P50LatencyMs:   sampleStatus.P50LatencyMs,
-		P95LatencyMs:   sampleStatus.P95LatencyMs,
-		P99LatencyMs:   sampleStatus.P99LatencyMs,
-		TotalMessages:  netMetrics.TotalMessages,
-		TotalBytes:     netMetrics.TotalBytes,
-	}, nil
 }
 
 // BuildClusterWithGroup 构建带分组参数的模拟集群
@@ -232,6 +140,8 @@ func BuildClusterWithGroup(et EngineType, nodeCount int, groupCount int, innerTy
 			e.ExtraLatencyMs = (float64(nodeCount*(nodeCount-1)*2) * 0.18) / 4.0
 			e.BroadcastTargets = func() []string { return nodeIDs }
 			e.ValidatorSelector = func() []string { return nodeIDs }
+		case *cometbft.CometBFT:
+			e.Init(cfg, simNet, pool, exec)
 		case *hotstuff.HotStuff:
 			e.Init(cfg, simNet, pool, exec)
 			// HotStuff线性复杂度，签名验证少很多（只有leader聚合）
@@ -250,6 +160,111 @@ func BuildClusterWithGroup(et EngineType, nodeCount int, groupCount int, innerTy
 	}
 
 	return cluster, nil
+}
+
+// RunBenchmarkWithGroup 运行带分组参数的基准测试
+func RunBenchmarkWithGroup(et EngineType, nodeCount int, groupCount int, innerType string, txCount int, txSize int, latencyMs, bandwidth float64) (*BenchmarkResult, error) {
+	actualLatency := 5.0 // 基础LAN延迟5ms（更接近论文的单机多实例+模拟）
+	if latencyMs > 0 {
+		actualLatency = latencyMs
+	}
+	cluster, err := BuildClusterWithGroup(et, nodeCount, groupCount, innerType, actualLatency, bandwidth)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := cluster.StartAll(); err != nil {
+		return nil, err
+	}
+	defer cluster.StopAll()
+
+	// 预热
+	time.Sleep(200 * time.Millisecond)
+
+	// 以固定速率发送交易（模拟持续负载）
+	durationSec := 10
+	if txCount <= 200 {
+		durationSec = 5
+	}
+	targetTPS := float64(txCount) / float64(durationSec)
+	intervalMs := 1000.0 / targetTPS
+
+	start := time.Now()
+	sent := 0
+	for i := 0; i < txCount; i++ {
+		payload := make([]byte, txSize)
+		rand.Read(payload)
+		tx := core.NewTx(payload, fmt.Sprintf("client-%d", i%100), uint64(i))
+		tx.From = "client"
+		tx.SubmitTime = time.Now()
+		cluster.SubmitTx(tx)
+		sent++
+		if intervalMs > 0 {
+			time.Sleep(time.Duration(intervalMs * float64(time.Millisecond)))
+		}
+	}
+
+	// 发送完成后，等待所有交易被确认
+	time.Sleep(2 * time.Second)
+	timeout := time.Duration(30) * time.Second
+	if nodeCount >= 32 {
+		timeout = 60 * time.Second
+	}
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		allDone := true
+		for _, pool := range cluster.TxPools {
+			if pool.PendingCount() > 0 {
+				allDone = false
+				break
+			}
+		}
+		if allDone {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	elapsed := time.Since(start).Seconds()
+
+	// 收集指标（优先使用leader节点的延迟数据）
+	statusMap := cluster.GetAllStatus()
+	var sampleStatus core.EngineStatus
+	for _, s := range statusMap {
+		if s.IsLeader {
+			sampleStatus = s
+			break
+		}
+	}
+	// 如果没有leader（理论上不应发生），使用第一个节点
+	if sampleStatus.NodeID == "" {
+		for _, s := range statusMap {
+			sampleStatus = s
+			break
+		}
+	}
+
+	netMetrics := cluster.Network.GetMetrics()
+
+	// 计算实际TPS（基于完成时间）
+	actualTPS := float64(sent) / elapsed
+	if actualTPS > float64(sent) {
+		actualTPS = float64(sent) // 上限
+	}
+
+	return &BenchmarkResult{
+		EngineType:     string(et),
+		NodeCount:      nodeCount,
+		TxCount:        sent,
+		DurationSec:    elapsed,
+		TPS:            actualTPS,
+		P50LatencyMs:   sampleStatus.P50LatencyMs,
+		P95LatencyMs:   sampleStatus.P95LatencyMs,
+		P99LatencyMs:   sampleStatus.P99LatencyMs,
+		TotalMessages:  netMetrics.TotalMessages,
+		TotalBytes:     netMetrics.TotalBytes,
+	}, nil
 }
 
 // BuildCluster 构建一个完整的模拟集群
@@ -353,12 +368,12 @@ func RunBenchmark(et EngineType, nodeCount int, txCount int, txSize int, latency
 	defer cluster.StopAll()
 
 	// 预热
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// 以固定速率发送交易（模拟持续负载）
-	durationSec := 5
-	if txCount <= 100 {
-		durationSec = 2
+	durationSec := 10
+	if txCount <= 200 {
+		durationSec = 5
 	}
 	targetTPS := float64(txCount) / float64(durationSec)
 	intervalMs := 1000.0 / targetTPS
@@ -379,10 +394,10 @@ func RunBenchmark(et EngineType, nodeCount int, txCount int, txSize int, latency
 	}
 
 	// 发送完成后，等待所有交易被确认
-	time.Sleep(500 * time.Millisecond)
-	timeout := time.Duration(15) * time.Second
+	time.Sleep(2 * time.Second)
+	timeout := time.Duration(30) * time.Second
 	if nodeCount >= 32 {
-		timeout = 30 * time.Second
+		timeout = 60 * time.Second
 	}
 
 	deadline := time.Now().Add(timeout)
