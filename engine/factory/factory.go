@@ -5,10 +5,14 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/fffeng99999/hcp-consensus/engine/cometbft"
+	cometbftlight "github.com/fffeng99999/hcp-consensus/engine/cometbft_light"
 	"github.com/fffeng99999/hcp-consensus/engine/common"
 	"github.com/fffeng99999/hcp-consensus/engine/core"
 	"github.com/fffeng99999/hcp-consensus/engine/hierarchical"
@@ -16,6 +20,7 @@ import (
 	"github.com/fffeng99999/hcp-consensus/engine/network"
 	"github.com/fffeng99999/hcp-consensus/engine/pbft"
 	"github.com/fffeng99999/hcp-consensus/engine/raft"
+	"github.com/fffeng99999/hcp-consensus/engine/sdkexec"
 	"github.com/fffeng99999/hcp-consensus/engine/tpbft"
 )
 
@@ -28,6 +33,7 @@ const (
 	EngineHotStuff                EngineType = "hotstuff"
 	EngineRaft                    EngineType = "raft"
 	EngineCometBFT                EngineType = "cometbft"
+	EngineCometBFTLight           EngineType = "cometbft-light"
 	EngineHierarchicalTPBFT       EngineType = "hierarchical_tpbft"
 	EngineHierarchicalLightweight EngineType = "hierarchical_lightweight_tpbft"
 	EngineTPBFTParallel           EngineType = "tpbft_parallel"
@@ -46,6 +52,8 @@ func CreateEngine(et EngineType) (core.ConsensusEngine, error) {
 		return raft.NewRaft(), nil
 	case EngineCometBFT:
 		return cometbft.NewCometBFT(), nil
+	case EngineCometBFTLight, EngineType("cometBFT-light"), EngineType("cometbft_light"):
+		return cometbftlight.NewCometBFTLight(), nil
 	case EngineHierarchicalTPBFT:
 		return hierarchical.NewHierarchicalTPBFT(4, "pbft", 0.6), nil
 	case EngineHierarchicalLightweight:
@@ -71,6 +79,29 @@ func CreateEngineWithGroup(et EngineType, groupCount int, innerType string) (cor
 }
 
 // BuildClusterWithGroup 构建带分组参数的模拟集群
+func createExecutor(nodeID string) core.Executor {
+	if !sdkExecutorEnabled() {
+		return common.NewSimpleExecutor()
+	}
+	baseDir := os.Getenv("HCP_ENGINE_NODE_DATA_DIR")
+	if strings.TrimSpace(baseDir) == "" {
+		return common.NewSimpleExecutor()
+	}
+	nodeName := strings.ReplaceAll(nodeID, "-", "")
+	homeDir := filepath.Join(baseDir, nodeName)
+	exec, err := sdkexec.New(nodeID, homeDir, os.Getenv("HCP_ENGINE_SDK_CHAIN_ID"))
+	if err != nil {
+		fmt.Printf("sdk executor disabled for %s: %v\n", nodeID, err)
+		return common.NewSimpleExecutor()
+	}
+	return exec
+}
+
+func sdkExecutorEnabled() bool {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv("HCP_ENGINE_SDK_EXEC")))
+	return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
+}
+
 func BuildClusterWithGroup(et EngineType, nodeCount int, groupCount int, innerType string, latencyMs, bandwidth float64) (*network.Cluster, error) {
 	cluster := network.NewCluster()
 	simNet := cluster.Network
@@ -113,7 +144,7 @@ func BuildClusterWithGroup(et EngineType, nodeCount int, groupCount int, innerTy
 		}
 
 		pool := common.NewMemTxPool(100000)
-		exec := common.NewSimpleExecutor()
+		exec := createExecutor(nodeID)
 
 		// 为不同算法配置特殊参数
 		switch e := engine.(type) {
@@ -141,6 +172,8 @@ func BuildClusterWithGroup(et EngineType, nodeCount int, groupCount int, innerTy
 			e.BroadcastTargets = func() []string { return nodeIDs }
 			e.ValidatorSelector = func() []string { return nodeIDs }
 		case *cometbft.CometBFT:
+			e.Init(cfg, simNet, pool, exec)
+		case *cometbftlight.CometBFTLight:
 			e.Init(cfg, simNet, pool, exec)
 		case *hotstuff.HotStuff:
 			e.Init(cfg, simNet, pool, exec)
@@ -254,16 +287,16 @@ func RunBenchmarkWithGroup(et EngineType, nodeCount int, groupCount int, innerTy
 	}
 
 	return &BenchmarkResult{
-		EngineType:     string(et),
-		NodeCount:      nodeCount,
-		TxCount:        sent,
-		DurationSec:    elapsed,
-		TPS:            actualTPS,
-		P50LatencyMs:   sampleStatus.P50LatencyMs,
-		P95LatencyMs:   sampleStatus.P95LatencyMs,
-		P99LatencyMs:   sampleStatus.P99LatencyMs,
-		TotalMessages:  netMetrics.TotalMessages,
-		TotalBytes:     netMetrics.TotalBytes,
+		EngineType:    string(et),
+		NodeCount:     nodeCount,
+		TxCount:       sent,
+		DurationSec:   elapsed,
+		TPS:           actualTPS,
+		P50LatencyMs:  sampleStatus.P50LatencyMs,
+		P95LatencyMs:  sampleStatus.P95LatencyMs,
+		P99LatencyMs:  sampleStatus.P99LatencyMs,
+		TotalMessages: netMetrics.TotalMessages,
+		TotalBytes:    netMetrics.TotalBytes,
 	}, nil
 }
 
@@ -304,7 +337,7 @@ func BuildCluster(et EngineType, nodeCount int, latencyMs, bandwidth float64) (*
 		}
 
 		pool := common.NewMemTxPool(100000)
-		exec := common.NewSimpleExecutor()
+		exec := createExecutor(nodeID)
 
 		// 为不同算法配置特殊参数
 		switch e := engine.(type) {
@@ -331,6 +364,10 @@ func BuildCluster(et EngineType, nodeCount int, latencyMs, bandwidth float64) (*
 			e.ExtraLatencyMs = (float64(nodeCount*(nodeCount-1)*2) * 0.18) / 4.0
 			e.BroadcastTargets = func() []string { return nodeIDs }
 			e.ValidatorSelector = func() []string { return nodeIDs }
+		case *cometbft.CometBFT:
+			e.Init(cfg, simNet, pool, exec)
+		case *cometbftlight.CometBFTLight:
+			e.Init(cfg, simNet, pool, exec)
 		case *hotstuff.HotStuff:
 			e.Init(cfg, simNet, pool, exec)
 			// HotStuff线性复杂度，签名验证少很多（只有leader聚合）
@@ -443,16 +480,16 @@ func RunBenchmark(et EngineType, nodeCount int, txCount int, txSize int, latency
 	}
 
 	result := &BenchmarkResult{
-		EngineType:     string(et),
-		NodeCount:      nodeCount,
-		TxCount:        sent,
-		DurationSec:    elapsed,
-		TPS:            actualTPS,
-		P50LatencyMs:   sampleStatus.P50LatencyMs,
-		P95LatencyMs:   sampleStatus.P95LatencyMs,
-		P99LatencyMs:   sampleStatus.P99LatencyMs,
-		TotalMessages:  netMetrics.TotalMessages,
-		TotalBytes:     netMetrics.TotalBytes,
+		EngineType:    string(et),
+		NodeCount:     nodeCount,
+		TxCount:       sent,
+		DurationSec:   elapsed,
+		TPS:           actualTPS,
+		P50LatencyMs:  sampleStatus.P50LatencyMs,
+		P95LatencyMs:  sampleStatus.P95LatencyMs,
+		P99LatencyMs:  sampleStatus.P99LatencyMs,
+		TotalMessages: netMetrics.TotalMessages,
+		TotalBytes:    netMetrics.TotalBytes,
 	}
 
 	return result, nil

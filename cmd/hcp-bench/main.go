@@ -34,7 +34,7 @@ func main() {
 		fmt.Println("  model-fit <data-json> [outfile]                     拟合尾延迟模型")
 		fmt.Println("  serve <engine> <nodes> <listen> [groups]            启动本地 engine 集群 HTTP 负载入口")
 		fmt.Println("  smoke [outfile]                                      验证实验所需 engine 的最小可运行性")
-		fmt.Println("Engines: pbft, tpbft, hotstuff, raft, cometbft, hierarchical_tpbft, hierarchical_lightweight_tpbft")
+		fmt.Println("Engines: pbft, tpbft, hotstuff, raft, cometbft-light, cometbft, hierarchical_tpbft, hierarchical_lightweight_tpbft")
 		os.Exit(1)
 	}
 
@@ -91,7 +91,8 @@ func runSmoke() {
 		{"tPBFT trust-filtered PBFT", factory.EngineTPBFT, 4, 40, 0},
 		{"HotStuff chained BFT", factory.EngineHotStuff, 4, 40, 0},
 		{"Raft crash-fault tolerant", factory.EngineRaft, 4, 40, 0},
-		{"CometBFT-like BFT", factory.EngineCometBFT, 4, 40, 0},
+		{"CometBFT-light BFT", factory.EngineCometBFTLight, 4, 40, 0},
+		{"Legacy CometBFT-like BFT", factory.EngineCometBFT, 4, 40, 0},
 		{"Hierarchical tPBFT", factory.EngineHierarchicalTPBFT, 8, 40, 2},
 		{"Hierarchical lightweight tPBFT", factory.EngineHierarchicalLightweight, 8, 40, 2},
 	}
@@ -245,21 +246,11 @@ func runServe() {
 		}
 		acceptedTxs := atomic.LoadUint64(&accepted)
 		committedTxs := sample.CommittedTxs
-		expectedTxs := uint64(0)
-		if rawExpected := r.URL.Query().Get("expected"); rawExpected != "" {
-			if parsed, err := strconv.ParseUint(rawExpected, 10, 64); err == nil {
-				expectedTxs = parsed
-			}
-		}
-		completeTarget := acceptedTxs
-		if expectedTxs > 0 {
-			completeTarget = expectedTxs
-		}
 		firstNano := sample.FirstSubmitUnixNano
 		completedNano := sample.LastCommitUnixNano
 		completionDuration := 0.0
 		benchmarkTPS := 0.0
-		if completeTarget > 0 && committedTxs >= completeTarget && firstNano > 0 && completedNano > firstNano {
+		if committedTxs > 0 && firstNano > 0 && completedNano > firstNano {
 			completionDuration = float64(completedNano-firstNano) / float64(time.Second)
 			benchmarkTPS = float64(committedTxs) / completionDuration
 		}
@@ -382,7 +373,7 @@ func runCompare() {
 		{"tPBFT", factory.EngineTPBFT},
 		{"HotStuff", factory.EngineHotStuff},
 		{"Raft", factory.EngineRaft},
-		{"CometBFT", factory.EngineCometBFT},
+		{"CometBFT-light", factory.EngineCometBFTLight},
 		{"Hierarchical_tPBFT", factory.EngineHierarchicalTPBFT},
 	}
 

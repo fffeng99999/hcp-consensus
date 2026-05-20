@@ -49,16 +49,16 @@ import (
 	// Import consensus modules
 	"github.com/fffeng99999/hcp-consensus/consensus/common"
 	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical"
+	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_hotspot_tpbft"
+	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_lightweight_tpbft"
 	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_tpbft"
+	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_tpbft_parallel_block"
 	"github.com/fffeng99999/hcp-consensus/consensus/hotstuff"
 	"github.com/fffeng99999/hcp-consensus/consensus/ibft"
 	"github.com/fffeng99999/hcp-consensus/consensus/pow"
 	"github.com/fffeng99999/hcp-consensus/consensus/raft"
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft"
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft_parallel"
-	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_hotspot_tpbft"
-	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_lightweight_tpbft"
-	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_tpbft_parallel_block"
 	"github.com/fffeng99999/hcp-consensus/consensus/tpbft_parallel_block"
 	"github.com/fffeng99999/hcp-consensus/consensus/votor"
 )
@@ -376,6 +376,8 @@ func NewApp(
 		consensusEngine = tpbft_parallel_block.NewTPBFTParallelBlock(tpbft_parallel_block.Config{
 			SubBlockK: readInt("merkle-k", 1),
 		})
+	case "noop":
+		consensusEngine = noOpConsensusEngine{}
 	case "hierarchical-lightweight-tpbft":
 		consensusEngine = hierarchical_lightweight_tpbft.NewHierarchicalLightweightTPBFT(hierarchical_lightweight_tpbft.Config{
 			NodeCount:            readInt("hierarchical-node-count", 32),
@@ -408,30 +410,30 @@ func NewApp(
 		})
 	case "hierarchical-hotspot-tpbft":
 		consensusEngine = hierarchical_hotspot_tpbft.NewHierarchicalHotspotTPBFT(hierarchical_hotspot_tpbft.Config{
-			NodeCount:            readInt("hierarchical-node-count", 32),
-			GroupCount:           readInt("hierarchical-group-count", 0),
-			GroupSize:            readInt("hierarchical-group-size", 0),
-			MessageBytes:         readInt("hierarchical-message-bytes", 256),
-			BaseLatencyMs:        readFloat("hierarchical-base-latency-ms", 1),
-			PhaseWeightInner:     readFloat("hierarchical-phase-weight-inner", 1),
-			PhaseWeightOuter:     readFloat("hierarchical-phase-weight-outer", 1),
-			SigAlgorithm:         readString("hierarchical-sig-algo", "bls"),
-			SigGenMs:             readFloat("hierarchical-sig-gen-ms", 0),
-			SigVerifyMs:          readFloat("hierarchical-sig-verify-ms", 0),
-			SigAggMs:             readFloat("hierarchical-sig-agg-ms", 0),
-			OuterSigMode:         readString("hierarchical-outer-mode", "threshold"),
-			OuterSigAlgorithm:    readString("hierarchical-outer-sig-algo", ""),
-			OuterSigGenMs:        readFloat("hierarchical-outer-sig-gen-ms", 0),
-			OuterSigVerifyMs:     readFloat("hierarchical-outer-sig-verify-ms", 0),
-			OuterSigAggMs:        readFloat("hierarchical-outer-sig-agg-ms", 0),
-			BatchVerify:          readBool("hierarchical-batch-verify", false),
-			BatchVerifyGain:      readFloat("hierarchical-batch-verify-gain", 1),
-			SigGenParallelism:    readFloat("hierarchical-sig-gen-parallelism", 1),
-			SigVerifyParallelism: readFloat("hierarchical-sig-verify-parallelism", 1),
-			SigAggParallelism:    readFloat("hierarchical-sig-agg-parallelism", 1),
-			BatchSize:            readInt("hierarchical-batch-size", 200),
-			GroupingStrategy:     readString("grouping-strategy", "random"),
-			ZipfAlpha:            readFloat("zipf-alpha", 0),
+			NodeCount:               readInt("hierarchical-node-count", 32),
+			GroupCount:              readInt("hierarchical-group-count", 0),
+			GroupSize:               readInt("hierarchical-group-size", 0),
+			MessageBytes:            readInt("hierarchical-message-bytes", 256),
+			BaseLatencyMs:           readFloat("hierarchical-base-latency-ms", 1),
+			PhaseWeightInner:        readFloat("hierarchical-phase-weight-inner", 1),
+			PhaseWeightOuter:        readFloat("hierarchical-phase-weight-outer", 1),
+			SigAlgorithm:            readString("hierarchical-sig-algo", "bls"),
+			SigGenMs:                readFloat("hierarchical-sig-gen-ms", 0),
+			SigVerifyMs:             readFloat("hierarchical-sig-verify-ms", 0),
+			SigAggMs:                readFloat("hierarchical-sig-agg-ms", 0),
+			OuterSigMode:            readString("hierarchical-outer-mode", "threshold"),
+			OuterSigAlgorithm:       readString("hierarchical-outer-sig-algo", ""),
+			OuterSigGenMs:           readFloat("hierarchical-outer-sig-gen-ms", 0),
+			OuterSigVerifyMs:        readFloat("hierarchical-outer-sig-verify-ms", 0),
+			OuterSigAggMs:           readFloat("hierarchical-outer-sig-agg-ms", 0),
+			BatchVerify:             readBool("hierarchical-batch-verify", false),
+			BatchVerifyGain:         readFloat("hierarchical-batch-verify-gain", 1),
+			SigGenParallelism:       readFloat("hierarchical-sig-gen-parallelism", 1),
+			SigVerifyParallelism:    readFloat("hierarchical-sig-verify-parallelism", 1),
+			SigAggParallelism:       readFloat("hierarchical-sig-agg-parallelism", 1),
+			BatchSize:               readInt("hierarchical-batch-size", 200),
+			GroupingStrategy:        readString("grouping-strategy", "random"),
+			ZipfAlpha:               readFloat("zipf-alpha", 0),
 			CrossGroupPenaltyFactor: readFloat("cross-group-penalty-factor", 0.5),
 		})
 	case "hierarchical-tpbft-parallel-block":
@@ -557,23 +559,44 @@ func NewApp(
 	app.ModuleManager = module.NewManager(
 		auth.NewAppModule(appCodec, app.AccountKeeper, nil, nil),
 		bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper, nil),
-		staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper, nil),
 		consensus.NewAppModule(appCodec, app.ConsensusKeeper),
-		genutil.NewAppModule(app.AccountKeeper, app.StakingKeeper, app, txConfig),
 	)
+	if !readBool("engine-sdk-minimal", false) {
+		app.ModuleManager = module.NewManager(
+			auth.NewAppModule(appCodec, app.AccountKeeper, nil, nil),
+			bank.NewAppModule(appCodec, app.BankKeeper, app.AccountKeeper, nil),
+			staking.NewAppModule(appCodec, app.StakingKeeper, app.AccountKeeper, app.BankKeeper, nil),
+			consensus.NewAppModule(appCodec, app.ConsensusKeeper),
+			genutil.NewAppModule(app.AccountKeeper, app.StakingKeeper, app, txConfig),
+		)
+	}
 
-	app.ModuleManager.SetOrderInitGenesis(
-		authtypes.ModuleName,
-		banktypes.ModuleName,
-		stakingtypes.ModuleName,
-		consensustypes.ModuleName,
-		genutiltypes.ModuleName,
-	)
+	if readBool("engine-sdk-minimal", false) {
+		app.ModuleManager.SetOrderInitGenesis(
+			authtypes.ModuleName,
+			banktypes.ModuleName,
+			consensustypes.ModuleName,
+		)
+	} else {
+		app.ModuleManager.SetOrderInitGenesis(
+			authtypes.ModuleName,
+			banktypes.ModuleName,
+			stakingtypes.ModuleName,
+			consensustypes.ModuleName,
+			genutiltypes.ModuleName,
+		)
+	}
 
 	// 注册各模块的 gRPC / Msg 等服务
 	app.ModuleManager.RegisterServices(module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter()))
 
-	app.SetInitChainer(app.InitChainer)
+	if readBool("engine-sdk-skip-init-genesis", false) {
+		app.SetInitChainer(func(ctx sdk.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
+			return &abci.ResponseInitChain{}, nil
+		})
+	} else {
+		app.SetInitChainer(app.InitChainer)
+	}
 	app.SetBeginBlocker(app.BeginBlocker) // 注册 BeginBlocker
 	app.SetEndBlocker(app.EndBlocker)     // 注册 EndBlocker
 
@@ -707,4 +730,13 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 // 注册交易相关的 gRPC 服务，包括 MsgServiceRouter 和 QueryRouter
 func (app *App) RegisterTxService(clientCtx client.Context) {
 	authtx.RegisterTxService(app.GRPCQueryRouter(), clientCtx, app.BaseApp.Simulate, app.interfaceRegistry)
+}
+
+type noOpConsensusEngine struct{}
+
+func (noOpConsensusEngine) Start() error               { return nil }
+func (noOpConsensusEngine) Stop() error                { return nil }
+func (noOpConsensusEngine) BeginBlock(ctx sdk.Context) {}
+func (noOpConsensusEngine) EndBlock(ctx sdk.Context) []abci.ValidatorUpdate {
+	return nil
 }

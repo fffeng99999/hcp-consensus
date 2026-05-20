@@ -405,7 +405,6 @@ func (h *HotStuff) voteCommit(height uint64, blockHash string) {
 		Sigs:      map[string][]byte{h.cfg.NodeID: sig},
 		Timestamp: time.Now(),
 	}
-	h.network.Send(&core.Message{Type: core.MsgCommitHS, From: h.cfg.NodeID, To: h.leaderID})
 	// 实际发送vote
 	vote.To = h.leaderID
 	h.network.Send(vote)
@@ -522,10 +521,15 @@ func (h *HotStuff) commitBlock(block *core.Block) {
 		return // 防止重复提交
 	}
 	h.committedHeight(block.Height)
+	if h.ExtraLatencyMs > 0 {
+		time.Sleep(time.Duration(h.ExtraLatencyMs * float64(time.Millisecond)))
+	}
 	h.executor.ExecuteBlock(block)
 
+	txIDs := make([]string, 0, len(block.Txs))
 	now := time.Now()
 	for _, tx := range block.Txs {
+		txIDs = append(txIDs, tx.ID)
 		delete(h.pendingReqs, tx.ID)
 		if !tx.SubmitTime.IsZero() {
 			latencyUs := now.Sub(tx.SubmitTime).Microseconds()
@@ -535,7 +539,18 @@ func (h *HotStuff) commitBlock(block *core.Block) {
 		}
 	}
 	core.UpdateCommitWindow(&h.firstSubmitUnixNano, &h.lastCommitUnixNano, block, now)
+	h.txPool.RemoveTxs(txIDs)
 	atomic.AddUint64(&h.totalTxCommitted, uint64(len(block.Txs)))
+	for _, tx := range block.Txs {
+		reply := &core.Message{
+			Type:   core.MsgClientReply,
+			From:   h.cfg.NodeID,
+			To:     tx.From,
+			Tx:     tx,
+			Height: block.Height,
+		}
+		h.network.Send(reply)
+	}
 	h.height = block.Height
 	h.proposalInFlight = false
 }

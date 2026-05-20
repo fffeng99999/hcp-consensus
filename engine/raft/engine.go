@@ -273,8 +273,9 @@ func (r *Raft) appendBlock() {
 	if len(r.log) > 0 && r.log[len(r.log)-1].Block != nil {
 		prevHash = r.log[len(r.log)-1].Block.Hash
 	}
+	nextIndex := uint64(len(r.log))
 	block := &core.Block{
-		Height:    r.lastApplied + 1,
+		Height:    nextIndex,
 		PrevHash:  prevHash,
 		Txs:       txs,
 		Proposer:  r.cfg.NodeID,
@@ -284,7 +285,7 @@ func (r *Raft) appendBlock() {
 
 	entry := &RaftLogEntry{
 		Term:  r.currentTerm,
-		Index: uint64(len(r.log)),
+		Index: nextIndex,
 		Block: block,
 	}
 	r.log = append(r.log, entry)
@@ -376,11 +377,15 @@ func (r *Raft) applyCommitted() {
 		if r.lastApplied < uint64(len(r.log)) {
 			entry := r.log[r.lastApplied]
 			if entry.Block != nil {
+				if r.ExtraLatencyMs > 0 {
+					time.Sleep(time.Duration(r.ExtraLatencyMs * float64(time.Millisecond)))
+				}
 				r.executor.ExecuteBlock(entry.Block)
 				txIDs := make([]string, 0)
 				now := time.Now()
 				for _, tx := range entry.Block.Txs {
 					txIDs = append(txIDs, tx.ID)
+					delete(r.pendingReqs, tx.ID)
 					if submitTime, ok := r.submitTimes[tx.ID]; ok {
 						latencyUs := now.Sub(submitTime).Microseconds()
 						if latencyUs > 0 {
@@ -392,6 +397,16 @@ func (r *Raft) applyCommitted() {
 				core.UpdateCommitWindow(&r.firstSubmitUnixNano, &r.lastCommitUnixNano, entry.Block, now)
 				r.txPool.RemoveTxs(txIDs)
 				atomic.AddUint64(&r.totalTxCommitted, uint64(len(entry.Block.Txs)))
+				for _, tx := range entry.Block.Txs {
+					reply := &core.Message{
+						Type:   core.MsgClientReply,
+						From:   r.cfg.NodeID,
+						To:     tx.From,
+						Tx:     tx,
+						Height: entry.Block.Height,
+					}
+					r.network.Send(reply)
+				}
 			}
 		}
 	}
