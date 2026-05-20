@@ -200,6 +200,7 @@ func runServe() {
 	}
 	defer cluster.StopAll()
 
+	var received uint64
 	var accepted uint64
 	startedAt := time.Now()
 	mux := http.NewServeMux()
@@ -216,14 +217,16 @@ func runServe() {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		seq := atomic.AddUint64(&accepted, 1)
+		now := time.Now()
+		seq := atomic.AddUint64(&received, 1)
 		tx := core.NewTx(body, clientID(r.RemoteAddr), seq)
-		tx.SubmitTime = time.Now()
+		tx.SubmitTime = now
 		if err := cluster.SubmitTx(tx); err != nil {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true, "tx_id": tx.ID, "seq": seq})
+		acceptedSeq := atomic.AddUint64(&accepted, 1)
+		writeJSON(w, map[string]any{"ok": true, "tx_id": tx.ID, "seq": acceptedSeq})
 	})
 	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 		status := cluster.GetAllStatus()
@@ -240,15 +243,39 @@ func runServe() {
 				break
 			}
 		}
+		acceptedTxs := atomic.LoadUint64(&accepted)
+		committedTxs := sample.CommittedTxs
+		expectedTxs := uint64(0)
+		if rawExpected := r.URL.Query().Get("expected"); rawExpected != "" {
+			if parsed, err := strconv.ParseUint(rawExpected, 10, 64); err == nil {
+				expectedTxs = parsed
+			}
+		}
+		completeTarget := acceptedTxs
+		if expectedTxs > 0 {
+			completeTarget = expectedTxs
+		}
+		firstNano := sample.FirstSubmitUnixNano
+		completedNano := sample.LastCommitUnixNano
+		completionDuration := 0.0
+		benchmarkTPS := 0.0
+		if completeTarget > 0 && committedTxs >= completeTarget && firstNano > 0 && completedNano > firstNano {
+			completionDuration = float64(completedNano-firstNano) / float64(time.Second)
+			benchmarkTPS = float64(committedTxs) / completionDuration
+		}
 		writeJSON(w, map[string]any{
-			"engine":        string(engine),
-			"nodes":         nodes,
-			"groups":        groups,
-			"accepted_txs":  atomic.LoadUint64(&accepted),
-			"uptime_s":      time.Since(startedAt).Seconds(),
-			"sample_status": sample,
-			"node_status":   status,
-			"network":       netMetrics(),
+			"engine":                string(engine),
+			"nodes":                 nodes,
+			"groups":                groups,
+			"received_txs":          atomic.LoadUint64(&received),
+			"accepted_txs":          acceptedTxs,
+			"committed_txs":         committedTxs,
+			"completion_duration_s": completionDuration,
+			"benchmark_tps":         benchmarkTPS,
+			"uptime_s":              time.Since(startedAt).Seconds(),
+			"sample_status":         sample,
+			"node_status":           status,
+			"network":               netMetrics(),
 		})
 	})
 

@@ -21,36 +21,40 @@ type HotStuff struct {
 	executor core.Executor
 
 	// HotStuff状态
-	height        uint64
-	view          uint64
-	leaderID      string
-	isLeader      bool
-	lockedQC      *core.QuorumCertificate
-	prepareQC     *core.QuorumCertificate
-	commitQC      *core.QuorumCertificate
+	height           uint64
+	view             uint64
+	leaderID         string
+	isLeader         bool
+	proposalInFlight bool
+	proposalStarted  time.Time
+	lockedQC         *core.QuorumCertificate
+	prepareQC        *core.QuorumCertificate
+	commitQC         *core.QuorumCertificate
 
 	// 投票收集
-	prepareVotes  map[uint64]map[string]*core.Message // height -> nodeID -> vote
+	prepareVotes   map[uint64]map[string]*core.Message // height -> nodeID -> vote
 	precommitVotes map[uint64]map[string]*core.Message
-	commitVotes   map[uint64]map[string]*core.Message
+	commitVotes    map[uint64]map[string]*core.Message
 
 	// 客户端
-	pendingReqs   map[string]*core.Tx
-	latencyLog    []float64
+	pendingReqs map[string]*core.Tx
+	latencyLog  []float64
 
 	// 区块存储
-	blocks        map[uint64]*core.Block // height -> block
+	blocks map[uint64]*core.Block // height -> block
 
 	// 控制
-	running       bool
-	stopCh        chan struct{}
-	msgCh         chan *core.Message
-	viewTimeout   time.Duration
-	signer        *core.Signer
+	running     bool
+	stopCh      chan struct{}
+	msgCh       chan *core.Message
+	viewTimeout time.Duration
+	signer      *core.Signer
 
 	// 指标
-	totalTxCommitted uint64
-	startTime        time.Time
+	totalTxCommitted    uint64
+	firstSubmitUnixNano int64
+	lastCommitUnixNano  int64
+	startTime           time.Time
 
 	// 配置
 	EnableThresholdSig bool
@@ -62,17 +66,17 @@ type HotStuff struct {
 
 func NewHotStuff() *HotStuff {
 	return &HotStuff{
-		prepareVotes:   make(map[uint64]map[string]*core.Message),
-		precommitVotes: make(map[uint64]map[string]*core.Message),
-		commitVotes:    make(map[uint64]map[string]*core.Message),
-		pendingReqs:    make(map[string]*core.Tx),
-		latencyLog:     make([]float64, 0),
-		blocks:         make(map[uint64]*core.Block),
-		stopCh:         make(chan struct{}),
-		msgCh:          make(chan *core.Message, 1024),
-		viewTimeout:    5 * time.Second,
+		prepareVotes:       make(map[uint64]map[string]*core.Message),
+		precommitVotes:     make(map[uint64]map[string]*core.Message),
+		commitVotes:        make(map[uint64]map[string]*core.Message),
+		pendingReqs:        make(map[string]*core.Tx),
+		latencyLog:         make([]float64, 0),
+		blocks:             make(map[uint64]*core.Block),
+		stopCh:             make(chan struct{}),
+		msgCh:              make(chan *core.Message, 1024),
+		viewTimeout:        5 * time.Second,
 		EnableThresholdSig: true,
-		PipelineDepth:  3,
+		PipelineDepth:      3,
 	}
 }
 
@@ -145,18 +149,24 @@ func (h *HotStuff) GetStatus() core.EngineStatus {
 	if elapsed > 0 {
 		tps = float64(atomic.LoadUint64(&h.totalTxCommitted)) / elapsed
 	}
+	committedTxs := atomic.LoadUint64(&h.totalTxCommitted)
+	firstSubmitUnixNano := atomic.LoadInt64(&h.firstSubmitUnixNano)
+	lastCommitUnixNano := atomic.LoadInt64(&h.lastCommitUnixNano)
 	p50, p95, p99 := common.ComputeLatencyStats(h.latencyLog)
 	return core.EngineStatus{
-		NodeID:         h.cfg.NodeID,
-		Height:         h.height,
-		View:           h.view,
-		IsLeader:       h.isLeader,
-		LeaderID:       h.leaderID,
-		PendingTxCount: len(h.pendingReqs),
-		TPS:            tps,
-		P50LatencyMs:   p50,
-		P95LatencyMs:   p95,
-		P99LatencyMs:   p99,
+		NodeID:              h.cfg.NodeID,
+		Height:              h.height,
+		View:                h.view,
+		IsLeader:            h.isLeader,
+		LeaderID:            h.leaderID,
+		PendingTxCount:      len(h.pendingReqs),
+		CommittedTxs:        committedTxs,
+		FirstSubmitUnixNano: firstSubmitUnixNano,
+		LastCommitUnixNano:  lastCommitUnixNano,
+		TPS:                 tps,
+		P50LatencyMs:        p50,
+		P95LatencyMs:        p95,
+		P99LatencyMs:        p99,
 	}
 }
 
@@ -209,7 +219,7 @@ func (h *HotStuff) handleClientRequest(msg *core.Message) {
 }
 
 func (h *HotStuff) proposalLoop() {
-	ticker := time.NewTicker(200 * time.Millisecond)
+	ticker := time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
@@ -227,6 +237,12 @@ func (h *HotStuff) proposeBlock() {
 	if !h.isLeader {
 		return
 	}
+	if h.proposalInFlight {
+		if time.Since(h.proposalStarted) < 100*time.Millisecond {
+			return
+		}
+		h.proposalInFlight = false
+	}
 
 	txs := h.txPool.GetTxs(200)
 	if len(txs) == 0 {
@@ -240,6 +256,8 @@ func (h *HotStuff) proposeBlock() {
 	if len(txs) == 0 {
 		return
 	}
+	h.proposalInFlight = true
+	h.proposalStarted = time.Now()
 
 	prevHash := ""
 	if h.height > 0 {
@@ -299,6 +317,9 @@ func (h *HotStuff) proposeBlock() {
 func (h *HotStuff) handlePrepareVote(msg *core.Message) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if entry, ok := h.logAtHeight(msg.Height); ok && entry.block != nil && msg.BlockHash != entry.block.Hash {
+		return
+	}
 	if h.prepareVotes[msg.Height] == nil {
 		h.prepareVotes[msg.Height] = make(map[string]*core.Message)
 	}
@@ -350,6 +371,9 @@ func (h *HotStuff) sendPreCommit(block *core.Block) {
 func (h *HotStuff) handlePreCommitVote(msg *core.Message) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if entry, ok := h.logAtHeight(msg.Height); ok && entry.block != nil && msg.BlockHash != entry.block.Hash {
+		return
+	}
 
 	if h.precommitVotes[msg.Height] == nil {
 		h.precommitVotes[msg.Height] = make(map[string]*core.Message)
@@ -406,6 +430,7 @@ func (h *HotStuff) sendCommit(block *core.Block) {
 		Type:      core.MsgDecideHS,
 		From:      h.cfg.NodeID,
 		Height:    block.Height,
+		Block:     block,
 		BlockHash: block.Hash,
 		QC:        qc,
 		Timestamp: time.Now(),
@@ -417,6 +442,9 @@ func (h *HotStuff) sendCommit(block *core.Block) {
 func (h *HotStuff) handleCommitVote(msg *core.Message) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if entry, ok := h.logAtHeight(msg.Height); ok && entry.block != nil && msg.BlockHash != entry.block.Hash {
+		return
+	}
 	if h.commitVotes[msg.Height] == nil {
 		h.commitVotes[msg.Height] = make(map[string]*core.Message)
 	}
@@ -453,7 +481,6 @@ func (h *HotStuff) handleNewView(msg *core.Message) {
 	if block == nil {
 		return
 	}
-
 
 	// 验证justify QC
 	if msg.QC != nil {
@@ -507,8 +534,10 @@ func (h *HotStuff) commitBlock(block *core.Block) {
 			}
 		}
 	}
+	core.UpdateCommitWindow(&h.firstSubmitUnixNano, &h.lastCommitUnixNano, block, now)
 	atomic.AddUint64(&h.totalTxCommitted, uint64(len(block.Txs)))
 	h.height = block.Height
+	h.proposalInFlight = false
 }
 
 func (h *HotStuff) committedHeight(height uint64) {}

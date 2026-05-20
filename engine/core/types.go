@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sync/atomic"
 	"time"
 )
 
@@ -101,9 +102,9 @@ type Tx struct {
 	From      string
 	Nonce     uint64
 	// 以下为延迟测量字段
-	SubmitTime    time.Time // 客户端提交时间
-	ProposeTime   time.Time // 被提议进区块的时间
-	CommitTime    time.Time // 区块提交时间（由各节点设置）
+	SubmitTime  time.Time // 客户端提交时间
+	ProposeTime time.Time // 被提议进区块的时间
+	CommitTime  time.Time // 区块提交时间（由各节点设置）
 }
 
 func NewTx(payload []byte, from string, nonce uint64) *Tx {
@@ -127,6 +128,28 @@ type Block struct {
 	Proposer  string
 	Timestamp time.Time
 	QC        *QuorumCertificate
+}
+
+func UpdateCommitWindow(firstSubmitUnixNano *int64, lastCommitUnixNano *int64, block *Block, commitTime time.Time) {
+	if block == nil {
+		return
+	}
+	for _, tx := range block.Txs {
+		if tx == nil || tx.SubmitTime.IsZero() {
+			continue
+		}
+		submitNano := tx.SubmitTime.UnixNano()
+		for {
+			current := atomic.LoadInt64(firstSubmitUnixNano)
+			if current != 0 && current <= submitNano {
+				break
+			}
+			if atomic.CompareAndSwapInt64(firstSubmitUnixNano, current, submitNano) {
+				break
+			}
+		}
+	}
+	atomic.StoreInt64(lastCommitUnixNano, commitTime.UnixNano())
 }
 
 func (b *Block) ComputeHash() string {
@@ -164,12 +187,12 @@ type Message struct {
 
 // NodeConfig 节点配置
 type NodeConfig struct {
-	NodeID       string
-	Addr         string
-	AllNodes     []string
-	PrivateKey   ed25519.PrivateKey
-	PublicKeys   map[string]ed25519.PublicKey
-	IsByzantine  bool
+	NodeID      string
+	Addr        string
+	AllNodes    []string
+	PrivateKey  ed25519.PrivateKey
+	PublicKeys  map[string]ed25519.PublicKey
+	IsByzantine bool
 }
 
 // ConsensusEngine 统一共识引擎接口
@@ -188,19 +211,22 @@ type ConsensusEngine interface {
 
 // EngineStatus 引擎状态
 type EngineStatus struct {
-	NodeID          string
-	Height          uint64
-	View            uint64
-	IsLeader        bool
-	LeaderID        string
-	PendingTxCount  int
-	CommittedBlocks uint64
-	TPS             float64
-	AvgLatencyMs    float64
-	P50LatencyMs    float64
-	P95LatencyMs    float64
-	P99LatencyMs    float64
-	CpuPercent      float64
+	NodeID              string
+	Height              uint64
+	View                uint64
+	IsLeader            bool
+	LeaderID            string
+	PendingTxCount      int
+	CommittedBlocks     uint64
+	CommittedTxs        uint64
+	FirstSubmitUnixNano int64
+	LastCommitUnixNano  int64
+	TPS                 float64
+	AvgLatencyMs        float64
+	P50LatencyMs        float64
+	P95LatencyMs        float64
+	P99LatencyMs        float64
+	CpuPercent          float64
 }
 
 // Network 网络层抽象
@@ -221,10 +247,10 @@ type Network interface {
 
 // NetworkMetrics 网络指标
 type NetworkMetrics struct {
-	TotalMessages   uint64
-	TotalBytes      uint64
-	BroadcastCount  uint64
-	AvgLatencyMs    float64
+	TotalMessages  uint64
+	TotalBytes     uint64
+	BroadcastCount uint64
+	AvgLatencyMs   float64
 }
 
 // TxPool 交易池接口

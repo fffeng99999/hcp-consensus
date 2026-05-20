@@ -26,13 +26,13 @@ type HierarchicalTPBFT struct {
 	outerPeers  []string
 	innerType   string
 
-	mu             sync.RWMutex
-	running        bool
-	pendingReqs    map[string]*core.Tx
-	submitTimes    map[string]time.Time
-	latencyLog     []float64
+	mu               sync.RWMutex
+	running          bool
+	pendingReqs      map[string]*core.Tx
+	submitTimes      map[string]time.Time
+	latencyLog       []float64
 	totalTxCommitted uint64
-	startTime      time.Time
+	startTime        time.Time
 }
 
 func NewHierarchicalTPBFT(groupCount int, innerType string, minTrust float64) *HierarchicalTPBFT {
@@ -43,8 +43,8 @@ func NewHierarchicalTPBFT(groupCount int, innerType string, minTrust float64) *H
 		innerType = "pbft"
 	}
 	return &HierarchicalTPBFT{
-		groupCount: groupCount,
-		innerType:  innerType,
+		groupCount:  groupCount,
+		innerType:   innerType,
 		pendingReqs: make(map[string]*core.Tx),
 		submitTimes: make(map[string]time.Time),
 		latencyLog:  make([]float64, 0),
@@ -164,7 +164,7 @@ func (h *HierarchicalTPBFT) SubmitTx(tx *core.Tx) error {
 
 func (h *HierarchicalTPBFT) GetStatus() core.EngineStatus {
 	innerStatus := h.innerEngine.GetStatus()
-	
+
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	elapsed := time.Since(h.startTime).Seconds()
@@ -172,23 +172,27 @@ func (h *HierarchicalTPBFT) GetStatus() core.EngineStatus {
 	if elapsed > 0 {
 		tps = float64(atomic.LoadUint64(&h.totalTxCommitted)) / elapsed
 	}
-	
+	committedTxs := atomic.LoadUint64(&h.totalTxCommitted)
+
 	// 使用innerEngine的延迟数据
 	p50, p95, p99 := innerStatus.P50LatencyMs, innerStatus.P95LatencyMs, innerStatus.P99LatencyMs
 	if p99 <= 0 {
 		p50, p95, p99 = common.ComputeLatencyStats(h.latencyLog)
 	}
-	
+
 	return core.EngineStatus{
-		NodeID:         h.cfg.NodeID,
-		Height:         innerStatus.Height,
-		IsLeader:       innerStatus.IsLeader,
-		LeaderID:       innerStatus.LeaderID,
-		PendingTxCount: len(h.pendingReqs),
-		TPS:            tps,
-		P50LatencyMs:   p50,
-		P95LatencyMs:   p95,
-		P99LatencyMs:   p99,
+		NodeID:              h.cfg.NodeID,
+		Height:              innerStatus.Height,
+		IsLeader:            innerStatus.IsLeader,
+		LeaderID:            innerStatus.LeaderID,
+		PendingTxCount:      len(h.pendingReqs),
+		CommittedTxs:        committedTxs,
+		FirstSubmitUnixNano: innerStatus.FirstSubmitUnixNano,
+		LastCommitUnixNano:  innerStatus.LastCommitUnixNano,
+		TPS:                 tps,
+		P50LatencyMs:        p50,
+		P95LatencyMs:        p95,
+		P99LatencyMs:        p99,
 	}
 }
 

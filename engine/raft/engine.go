@@ -29,45 +29,47 @@ type Raft struct {
 	txPool   core.TxPool
 	executor core.Executor
 
-	role           Role
-	currentTerm    uint64
-	log            []*RaftLogEntry
-	commitIndex    uint64
-	lastApplied    uint64
+	role        Role
+	currentTerm uint64
+	log         []*RaftLogEntry
+	commitIndex uint64
+	lastApplied uint64
 
 	// Leader追踪follower匹配状态
-	matchIndex     map[string]uint64
+	matchIndex map[string]uint64
 
-	pendingReqs    map[string]*core.Tx
-	submitTimes    map[string]time.Time
-	latencyLog     []float64
+	pendingReqs map[string]*core.Tx
+	submitTimes map[string]time.Time
+	latencyLog  []float64
 
-	running        bool
-	stopCh         chan struct{}
-	msgCh          chan *core.Message
+	running bool
+	stopCh  chan struct{}
+	msgCh   chan *core.Message
 
-	signer         *core.Signer
+	signer *core.Signer
 
-	totalTxCommitted uint64
-	startTime        time.Time
-	ExtraLatencyMs   float64
+	totalTxCommitted    uint64
+	firstSubmitUnixNano int64
+	lastCommitUnixNano  int64
+	startTime           time.Time
+	ExtraLatencyMs      float64
 }
 
 type RaftLogEntry struct {
-	Term    uint64
-	Index   uint64
-	Block   *core.Block
+	Term  uint64
+	Index uint64
+	Block *core.Block
 }
 
 func NewRaft() *Raft {
 	return &Raft{
-		log:            make([]*RaftLogEntry, 0),
-		matchIndex:     make(map[string]uint64),
-		pendingReqs:    make(map[string]*core.Tx),
-		submitTimes:    make(map[string]time.Time),
-		latencyLog:     make([]float64, 0),
-		stopCh:         make(chan struct{}),
-		msgCh:          make(chan *core.Message, 1024),
+		log:         make([]*RaftLogEntry, 0),
+		matchIndex:  make(map[string]uint64),
+		pendingReqs: make(map[string]*core.Tx),
+		submitTimes: make(map[string]time.Time),
+		latencyLog:  make([]float64, 0),
+		stopCh:      make(chan struct{}),
+		msgCh:       make(chan *core.Message, 1024),
 	}
 }
 
@@ -158,6 +160,9 @@ func (r *Raft) GetStatus() core.EngineStatus {
 	if elapsed > 0 {
 		tps = float64(atomic.LoadUint64(&r.totalTxCommitted)) / elapsed
 	}
+	committedTxs := atomic.LoadUint64(&r.totalTxCommitted)
+	firstSubmitUnixNano := atomic.LoadInt64(&r.firstSubmitUnixNano)
+	lastCommitUnixNano := atomic.LoadInt64(&r.lastCommitUnixNano)
 	p50, p95, p99 := common.ComputeLatencyStats(r.latencyLog)
 	leaderID := ""
 	if r.role == RoleLeader {
@@ -166,15 +171,18 @@ func (r *Raft) GetStatus() core.EngineStatus {
 		leaderID = r.cfg.AllNodes[0]
 	}
 	return core.EngineStatus{
-		NodeID:         r.cfg.NodeID,
-		Height:         r.lastApplied,
-		IsLeader:       r.role == RoleLeader,
-		LeaderID:       leaderID,
-		PendingTxCount: len(r.pendingReqs),
-		TPS:            tps,
-		P50LatencyMs:   p50,
-		P95LatencyMs:   p95,
-		P99LatencyMs:   p99,
+		NodeID:              r.cfg.NodeID,
+		Height:              r.lastApplied,
+		IsLeader:            r.role == RoleLeader,
+		LeaderID:            leaderID,
+		PendingTxCount:      len(r.pendingReqs),
+		CommittedTxs:        committedTxs,
+		FirstSubmitUnixNano: firstSubmitUnixNano,
+		LastCommitUnixNano:  lastCommitUnixNano,
+		TPS:                 tps,
+		P50LatencyMs:        p50,
+		P95LatencyMs:        p95,
+		P99LatencyMs:        p99,
 	}
 }
 
@@ -219,7 +227,7 @@ func (r *Raft) handleClientRequest(msg *core.Message) {
 }
 
 func (r *Raft) leaderLoop() {
-	ticker := time.NewTicker(200 * time.Millisecond)
+	ticker := time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
@@ -381,6 +389,7 @@ func (r *Raft) applyCommitted() {
 						delete(r.submitTimes, tx.ID)
 					}
 				}
+				core.UpdateCommitWindow(&r.firstSubmitUnixNano, &r.lastCommitUnixNano, entry.Block, now)
 				r.txPool.RemoveTxs(txIDs)
 				atomic.AddUint64(&r.totalTxCommitted, uint64(len(entry.Block.Txs)))
 			}

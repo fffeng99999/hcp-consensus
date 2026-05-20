@@ -31,39 +31,41 @@ type PBFT struct {
 	executor core.Executor
 
 	// 共识状态
-	view          uint64
-	height        uint64
-	state         State
-	leaderID      string
-	isLeader      bool
+	view     uint64
+	height   uint64
+	state    State
+	leaderID string
+	isLeader bool
 
 	// 日志
-	log           map[uint64]*LogEntry
-	committed     map[uint64]*core.Block
+	log       map[uint64]*LogEntry
+	committed map[uint64]*core.Block
 
 	// 投票收集
-	prepareVotes  map[string]map[string]bool // height:blockHash -> nodeID -> bool
-	commitVotes   map[string]map[string]bool
+	prepareVotes   map[string]map[string]bool // height:blockHash -> nodeID -> bool
+	commitVotes    map[string]map[string]bool
 	pendingCommits map[string][]*core.Message // 缓冲提前到达的Commit消息
 
 	// 客户端请求追踪
-	pendingReqs   map[string]*core.Tx
-	replyCache    map[string]*ClientReply
-	latencyLog    []float64 // 交易确认延迟记录
+	pendingReqs map[string]*core.Tx
+	replyCache  map[string]*ClientReply
+	latencyLog  []float64 // 交易确认延迟记录
 
 	// 控制
-	running       bool
-	stopCh        chan struct{}
-	msgCh         chan *core.Message
-	timer         *time.Timer
-	viewTimeout   time.Duration
+	running     bool
+	stopCh      chan struct{}
+	msgCh       chan *core.Message
+	timer       *time.Timer
+	viewTimeout time.Duration
 
 	// 签名
-	signer        *core.Signer
+	signer *core.Signer
 
 	// 指标
-	totalTxCommitted uint64
-	startTime        time.Time
+	totalTxCommitted    uint64
+	firstSubmitUnixNano int64
+	lastCommitUnixNano  int64
+	startTime           time.Time
 
 	// === 可扩展钩子 ===
 	// BroadcastTargets 自定义广播目标列表，nil表示广播给所有节点
@@ -100,17 +102,17 @@ type ClientReply struct {
 
 func NewPBFT() *PBFT {
 	return &PBFT{
-		log:           make(map[uint64]*LogEntry),
-		committed:     make(map[uint64]*core.Block),
-		prepareVotes:  make(map[string]map[string]bool),
-		commitVotes:   make(map[string]map[string]bool),
+		log:            make(map[uint64]*LogEntry),
+		committed:      make(map[uint64]*core.Block),
+		prepareVotes:   make(map[string]map[string]bool),
+		commitVotes:    make(map[string]map[string]bool),
 		pendingCommits: make(map[string][]*core.Message),
-		pendingReqs:   make(map[string]*core.Tx),
-		replyCache:    make(map[string]*ClientReply),
-		latencyLog:    make([]float64, 0),
-		stopCh:        make(chan struct{}),
-		msgCh:         make(chan *core.Message, 1024),
-		viewTimeout:   5 * time.Second,
+		pendingReqs:    make(map[string]*core.Tx),
+		replyCache:     make(map[string]*ClientReply),
+		latencyLog:     make([]float64, 0),
+		stopCh:         make(chan struct{}),
+		msgCh:          make(chan *core.Message, 1024),
+		viewTimeout:    5 * time.Second,
 		ExtraLatencyMs: 0,
 	}
 }
@@ -185,20 +187,26 @@ func (p *PBFT) GetStatus() core.EngineStatus {
 	if elapsed > 0 {
 		tps = float64(atomic.LoadUint64(&p.totalTxCommitted)) / elapsed
 	}
+	committedTxs := atomic.LoadUint64(&p.totalTxCommitted)
+	firstSubmitUnixNano := atomic.LoadInt64(&p.firstSubmitUnixNano)
+	lastCommitUnixNano := atomic.LoadInt64(&p.lastCommitUnixNano)
 	p50, p95, p99 := common.ComputeLatencyStats(p.latencyLog)
 	return core.EngineStatus{
-		NodeID:          p.cfg.NodeID,
-		Height:          p.height,
-		View:            p.view,
-		IsLeader:        p.isLeader,
-		LeaderID:        p.leaderID,
-		PendingTxCount:  len(p.pendingReqs),
-		CommittedBlocks: p.height,
-		TPS:             tps,
-		AvgLatencyMs:    0,
-		P50LatencyMs:    p50,
-		P95LatencyMs:    p95,
-		P99LatencyMs:    p99,
+		NodeID:              p.cfg.NodeID,
+		Height:              p.height,
+		View:                p.view,
+		IsLeader:            p.isLeader,
+		LeaderID:            p.leaderID,
+		PendingTxCount:      len(p.pendingReqs),
+		CommittedBlocks:     p.height,
+		CommittedTxs:        committedTxs,
+		FirstSubmitUnixNano: firstSubmitUnixNano,
+		LastCommitUnixNano:  lastCommitUnixNano,
+		TPS:                 tps,
+		AvgLatencyMs:        0,
+		P50LatencyMs:        p50,
+		P95LatencyMs:        p95,
+		P99LatencyMs:        p99,
 	}
 }
 
@@ -270,7 +278,7 @@ func (p *PBFT) handleClientRequest(msg *core.Message) {
 }
 
 func (p *PBFT) proposalLoop() {
-	ticker := time.NewTicker(200 * time.Millisecond)
+	ticker := time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
@@ -664,6 +672,7 @@ func (p *PBFT) commitBlock(block *core.Block) {
 			}
 		}
 	}
+	core.UpdateCommitWindow(&p.firstSubmitUnixNano, &p.lastCommitUnixNano, block, now)
 	p.txPool.RemoveTxs(txIDs)
 	atomic.AddUint64(&p.totalTxCommitted, uint64(len(block.Txs)))
 
