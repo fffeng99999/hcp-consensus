@@ -244,6 +244,49 @@ func runServe() {
 				break
 			}
 		}
+		if groups > 0 {
+			var committed uint64
+			var pending int
+			var firstNano int64
+			var lastNano int64
+			var maxHeight uint64
+			p50, p95, p99 := 0.0, 0.0, 0.0
+			for _, s := range status {
+				if !s.IsLeader {
+					continue
+				}
+				committed += s.CommittedTxs
+				pending += s.PendingTxCount
+				if s.FirstSubmitUnixNano > 0 && (firstNano == 0 || s.FirstSubmitUnixNano < firstNano) {
+					firstNano = s.FirstSubmitUnixNano
+				}
+				if s.LastCommitUnixNano > lastNano {
+					lastNano = s.LastCommitUnixNano
+				}
+				if s.Height > maxHeight {
+					maxHeight = s.Height
+				}
+				if s.P50LatencyMs > p50 {
+					p50 = s.P50LatencyMs
+				}
+				if s.P95LatencyMs > p95 {
+					p95 = s.P95LatencyMs
+				}
+				if s.P99LatencyMs > p99 {
+					p99 = s.P99LatencyMs
+				}
+			}
+			if committed > 0 {
+				sample.CommittedTxs = committed
+				sample.PendingTxCount = pending
+				sample.FirstSubmitUnixNano = firstNano
+				sample.LastCommitUnixNano = lastNano
+				sample.Height = maxHeight
+				sample.P50LatencyMs = p50
+				sample.P95LatencyMs = p95
+				sample.P99LatencyMs = p99
+			}
+		}
 		acceptedTxs := atomic.LoadUint64(&accepted)
 		committedTxs := sample.CommittedTxs
 		firstNano := sample.FirstSubmitUnixNano

@@ -3,29 +3,30 @@ package network
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/fffeng99999/hcp-consensus/engine/core"
 )
 
-// SimNet 模拟网络层，支持延迟、带宽限制和广播/单播
+// SimNet is an in-memory network with latency, bandwidth, and message metrics.
 type SimNet struct {
-	mu         sync.RWMutex
-	handlers   map[string]func(*core.Message)
-	latencyMs  float64
-	bandwidth  float64 // Mbps
-	msgCounter uint64
-	byteCounter uint64
+	mu               sync.RWMutex
+	handlers         map[string]func(*core.Message)
+	latencyMs        float64
+	bandwidth        float64
+	msgCounter       uint64
+	byteCounter      uint64
 	broadcastCounter uint64
-	onSend     func(msg *core.Message) // 钩子，用于测试和监控
+	onSend           func(msg *core.Message)
 }
 
 func NewSimNet() *SimNet {
 	return &SimNet{
 		handlers:  make(map[string]func(*core.Message)),
-		latencyMs: 0.2, // 默认0.2ms LAN延迟
-		bandwidth: 1000, // 默认1Gbps
+		latencyMs: 0.2,
+		bandwidth: 1000,
 	}
 }
 
@@ -75,12 +76,11 @@ func (n *SimNet) Send(msg *core.Message) error {
 		return fmt.Errorf("node %s not found", msg.To)
 	}
 
-	// 模拟传输延迟 = 网络延迟 + 带宽传输延迟
 	txDelayMs := 0.0
 	if bw > 0 {
 		txDelayMs = (float64(size) * 8.0 / 1000000.0) / bw * 1000.0
 	}
-	totalDelay := time.Duration((latency+txDelayMs)*float64(time.Millisecond))
+	totalDelay := time.Duration((latency + txDelayMs) * float64(time.Millisecond))
 
 	go func() {
 		time.Sleep(totalDelay)
@@ -102,7 +102,6 @@ func (n *SimNet) Broadcast(msg *core.Message) error {
 	if n.onSend != nil {
 		n.onSend(msg)
 	}
-	// 复制handlers map避免死锁
 	handlers := make(map[string]func(*core.Message))
 	for k, v := range n.handlers {
 		handlers[k] = v
@@ -113,23 +112,22 @@ func (n *SimNet) Broadcast(msg *core.Message) error {
 	if bw > 0 {
 		txDelayMs = (float64(size) * 8.0 / 1000000.0) / bw * 1000.0
 	}
-	totalDelay := time.Duration((latency+txDelayMs)*float64(time.Millisecond))
+	totalDelay := time.Duration((latency + txDelayMs) * float64(time.Millisecond))
 
 	for nodeID, handler := range handlers {
 		if nodeID == msg.From {
 			continue
 		}
-		// 每条消息单独计数
 		n.mu.Lock()
 		n.msgCounter++
 		n.byteCounter += size
 		n.broadcastCounter++
 		n.mu.Unlock()
 
-		go func(id string, h func(*core.Message), m *core.Message) {
+		go func(h func(*core.Message), m *core.Message) {
 			time.Sleep(totalDelay)
 			h(m)
-		}(nodeID, handler, msg)
+		}(handler, msg)
 	}
 	return nil
 }
@@ -137,25 +135,22 @@ func (n *SimNet) Broadcast(msg *core.Message) error {
 func (n *SimNet) GetMetrics() core.NetworkMetrics {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
-	avgLatency := n.latencyMs
-	if n.msgCounter > 0 {
-		avgLatency = n.latencyMs // 简化处理
-	}
 	return core.NetworkMetrics{
 		TotalMessages:  n.msgCounter,
 		TotalBytes:     n.byteCounter,
 		BroadcastCount: n.broadcastCounter,
-		AvgLatencyMs:   avgLatency,
+		AvgLatencyMs:   n.latencyMs,
 	}
 }
 
-// Cluster 管理整个模拟集群
+// Cluster manages all in-memory consensus nodes.
 type Cluster struct {
-	mu       sync.Mutex
-	Network  *SimNet
-	Nodes    map[string]core.ConsensusEngine
-	TxPools  map[string]core.TxPool
-	Started  bool
+	mu         sync.Mutex
+	Network    *SimNet
+	Nodes      map[string]core.ConsensusEngine
+	TxPools    map[string]core.TxPool
+	Started    bool
+	nextSubmit uint64
 }
 
 func NewCluster() *Cluster {
@@ -197,11 +192,17 @@ func (c *Cluster) StopAll() {
 func (c *Cluster) SubmitTx(tx *core.Tx) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// 随机选择一个leader或第一个节点提交
-	for _, node := range c.Nodes {
-		return node.SubmitTx(tx)
+	if len(c.Nodes) == 0 {
+		return nil
 	}
-	return nil
+	nodeIDs := make([]string, 0, len(c.Nodes))
+	for nodeID := range c.Nodes {
+		nodeIDs = append(nodeIDs, nodeID)
+	}
+	sort.Strings(nodeIDs)
+	nodeID := nodeIDs[int(c.nextSubmit%uint64(len(nodeIDs)))]
+	c.nextSubmit++
+	return c.Nodes[nodeID].SubmitTx(tx)
 }
 
 func (c *Cluster) GetAllStatus() map[string]core.EngineStatus {
@@ -231,5 +232,3 @@ func (c *Cluster) WaitForHeight(target uint64, timeout time.Duration) bool {
 	}
 	return false
 }
-
-

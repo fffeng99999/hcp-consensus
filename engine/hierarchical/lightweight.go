@@ -3,7 +3,6 @@ package hierarchical
 import (
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/fffeng99999/hcp-consensus/engine/common"
@@ -98,7 +97,10 @@ func (h *HierarchicalLightweight) Init(cfg *core.NodeConfig, network core.Networ
 	h.innerEngine = inner
 
 	innerPool := common.NewMemTxPool(100000)
-	innerExec := common.NewSimpleExecutor()
+	innerExec := exec
+	if innerExec == nil {
+		innerExec = common.NewSimpleExecutor()
+	}
 	return h.innerEngine.Init(innerCfg, innerNet, innerPool, innerExec)
 }
 
@@ -144,10 +146,13 @@ func (h *HierarchicalLightweight) GetStatus() core.EngineStatus {
 	defer h.mu.RUnlock()
 	elapsed := time.Since(h.startTime).Seconds()
 	tps := 0.0
+	committedTxs := innerStatus.CommittedTxs
 	if elapsed > 0 {
-		tps = float64(atomic.LoadUint64(&h.totalTxCommitted)) / elapsed
+		tps = float64(committedTxs) / elapsed
 	}
-	committedTxs := atomic.LoadUint64(&h.totalTxCommitted)
+	if innerStatus.TPS > 0 {
+		tps = innerStatus.TPS
+	}
 
 	p50, p95, p99 := innerStatus.P50LatencyMs, innerStatus.P95LatencyMs, innerStatus.P99LatencyMs
 	if p99 <= 0 {
@@ -159,7 +164,8 @@ func (h *HierarchicalLightweight) GetStatus() core.EngineStatus {
 		Height:              innerStatus.Height,
 		IsLeader:            innerStatus.IsLeader,
 		LeaderID:            innerStatus.LeaderID,
-		PendingTxCount:      len(h.pendingReqs),
+		PendingTxCount:      innerStatus.PendingTxCount,
+		CommittedBlocks:     innerStatus.CommittedBlocks,
 		CommittedTxs:        committedTxs,
 		FirstSubmitUnixNano: innerStatus.FirstSubmitUnixNano,
 		LastCommitUnixNano:  innerStatus.LastCommitUnixNano,
