@@ -46,7 +46,7 @@ import (
 	"github.com/cosmos/gogoproto/proto"
 	"github.com/spf13/cobra"
 
-	// Import consensus modules
+	// 导入共识相关模块
 	"github.com/fffeng99999/hcp-consensus/consensus/common"
 	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical"
 	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_hotspot_tpbft"
@@ -63,19 +63,23 @@ import (
 	"github.com/fffeng99999/hcp-consensus/consensus/votor"
 )
 
+// BankAppModuleBasic 包装 bank 模块的基础功能，用于自定义交易命令的地址编码器
 type BankAppModuleBasic struct {
 	bank.AppModuleBasic
 }
 
+// GetTxCmd 返回 bank 模块的交易命令，使用 hcp Bech32 前缀创建地址编码器
 func (b BankAppModuleBasic) GetTxCmd() *cobra.Command {
 	addrCodec := address.NewBech32Codec("hcp")
 	return bankcli.NewTxCmd(addrCodec)
 }
 
+// StakingAppModuleBasic 包装 staking 模块的基础功能，用于自定义交易命令的地址编码器
 type StakingAppModuleBasic struct {
 	staking.AppModuleBasic
 }
 
+// GetTxCmd 返回 staking 模块的交易命令，使用 hcp 和 hcpvaloper Bech32 前缀创建地址编码器
 func (b StakingAppModuleBasic) GetTxCmd() *cobra.Command {
 	valAddrCodec := address.NewBech32Codec("hcpvaloper")
 	addrCodec := address.NewBech32Codec("hcp")
@@ -97,6 +101,7 @@ var (
 	)
 )
 
+// init 在包导入时执行，初始化默认节点主目录为当前用户目录下的 .hcp 文件夹
 func init() {
 	userHomeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -106,9 +111,10 @@ func init() {
 	DefaultNodeHome = filepath.Join(userHomeDir, ".hcp")
 }
 
+// appName 定义应用名称常量
 const appName = "hcpd"
 
-// App 扩展了 ABCI 应用的基础实现
+// App 扩展了 ABCI 应用的基础实现，集成 Cosmos SDK 各模块与自定义共识引擎
 type App struct {
 	*baseapp.BaseApp
 
@@ -142,6 +148,7 @@ func NewApp(
 	appOpts servertypes.AppOptions,
 	baseAppOptions ...func(*baseapp.BaseApp),
 ) *App {
+	// 初始化接口注册表，配置地址编码器
 	interfaceRegistry, err := codectypes.NewInterfaceRegistryWithOptions(codectypes.InterfaceRegistryOptions{
 		ProtoFiles: proto.HybridResolver,
 		SigningOptions: signing.Options{
@@ -166,7 +173,7 @@ func NewApp(
 		chainID = v
 	}
 	if chainID == "" {
-		// Try to read from genesis file
+		// 尝试从 genesis 文件读取链 ID
 		homeDir, _ := appOpts.Get("home").(string)
 		if homeDir != "" {
 			genesisPath := filepath.Join(homeDir, "config", "genesis.json")
@@ -186,16 +193,19 @@ func NewApp(
 		baseAppOptions = append(baseAppOptions, baseapp.SetChainID(chainID))
 	}
 
+	// 创建 BaseApp 实例
 	bApp := baseapp.NewBaseApp(appName, logger, db, txConfig.TxDecoder(), baseAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetInterfaceRegistry(interfaceRegistry)
 	bApp.SetTxEncoder(txConfig.TxEncoder())
 
+	// 创建各模块存储键
 	keys := storetypes.NewKVStoreKeys(
 		authtypes.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		consensustypes.StoreKey,
 	)
 
+	// 读取共识引擎类型配置，默认为 tpbft
 	engineType := "tpbft"
 	if appOpts.Get("consensus-engine") != nil {
 		if v, ok := appOpts.Get("consensus-engine").(string); ok {
@@ -203,6 +213,7 @@ func NewApp(
 		}
 	}
 
+	// 以下为辅助函数，用于从 appOpts 中读取各类配置参数
 	readInt := func(key string, fallback int) int {
 		if appOpts.Get(key) == nil {
 			return fallback
@@ -277,6 +288,7 @@ func NewApp(
 		return fallback
 	}
 
+	// 根据配置创建对应的共识引擎实例
 	var consensusEngine common.ConsensusEngine
 	switch engineType {
 	case "pow":
@@ -468,6 +480,7 @@ func NewApp(
 		consensusEngine = tpbft.NewTPBFT()
 	}
 
+	// 检查是否需要并行区块引擎，用于提案观察
 	var parallelEngine *tpbft_parallel_block.TPBFTParallelBlock
 	if engine, ok := consensusEngine.(*tpbft_parallel_block.TPBFTParallelBlock); ok {
 		parallelEngine = engine
@@ -476,6 +489,7 @@ func NewApp(
 	if engine, ok := consensusEngine.(*hierarchical_tpbft_parallel_block.HierarchicalTPBFTParallelBlock); ok {
 		hierarchicalParallelEngine = engine
 	}
+	// 设置 PrepareProposal 钩子，用于在并行区块引擎中观察提案
 	proposalHandler := baseapp.NewDefaultProposalHandler(bApp.Mempool(), bApp)
 	prepareHandler := proposalHandler.PrepareProposalHandler()
 	bApp.SetPrepareProposal(func(ctx sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
@@ -488,6 +502,7 @@ func NewApp(
 		}
 		return resp, err
 	})
+	// 设置 ProcessProposal 钩子，用于在并行区块引擎中观察提案
 	processHandler := proposalHandler.ProcessProposalHandler()
 	bApp.SetProcessProposal(func(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 		if parallelEngine != nil {
@@ -499,6 +514,7 @@ func NewApp(
 		return processHandler(ctx, req)
 	})
 
+	// 创建 App 实例
 	app := &App{
 		BaseApp:           bApp,
 		cdc:               legacyAmino,
@@ -571,6 +587,7 @@ func NewApp(
 		)
 	}
 
+	// 设置创世模块初始化顺序
 	if readBool("engine-sdk-minimal", false) {
 		app.ModuleManager.SetOrderInitGenesis(
 			authtypes.ModuleName,
@@ -590,6 +607,7 @@ func NewApp(
 	// 注册各模块的 gRPC / Msg 等服务
 	app.ModuleManager.RegisterServices(module.NewConfigurator(app.appCodec, app.MsgServiceRouter(), app.GRPCQueryRouter()))
 
+	// 设置初始化链钩子，根据配置决定是否跳过创世初始化
 	if readBool("engine-sdk-skip-init-genesis", false) {
 		app.SetInitChainer(func(ctx sdk.Context, req *abci.RequestInitChain) (*abci.ResponseInitChain, error) {
 			return &abci.ResponseInitChain{}, nil
@@ -597,14 +615,17 @@ func NewApp(
 	} else {
 		app.SetInitChainer(app.InitChainer)
 	}
-	app.SetBeginBlocker(app.BeginBlocker) // 注册 BeginBlocker
-	app.SetEndBlocker(app.EndBlocker)     // 注册 EndBlocker
+
+	// 注册 BeginBlocker 和 EndBlocker
+	app.SetBeginBlocker(app.BeginBlocker)
+	app.SetEndBlocker(app.EndBlocker)
 
 	// 挂载 KV 存储
 	for _, key := range keys {
 		app.MountStore(key, storetypes.StoreTypeIAVL)
 	}
 
+	// 加载最新版本
 	if loadLatest {
 		if err := app.LoadLatestVersion(); err != nil {
 			panic(err)
@@ -732,11 +753,19 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 	authtx.RegisterTxService(app.GRPCQueryRouter(), clientCtx, app.BaseApp.Simulate, app.interfaceRegistry)
 }
 
+// noOpConsensusEngine 空操作共识引擎，用于测试或不需要共识的场景
 type noOpConsensusEngine struct{}
 
-func (noOpConsensusEngine) Start() error               { return nil }
-func (noOpConsensusEngine) Stop() error                { return nil }
+// Start 启动空操作共识引擎
+func (noOpConsensusEngine) Start() error { return nil }
+
+// Stop 停止空操作共识引擎
+func (noOpConsensusEngine) Stop() error { return nil }
+
+// BeginBlock 空操作 BeginBlock
 func (noOpConsensusEngine) BeginBlock(ctx sdk.Context) {}
+
+// EndBlock 空操作 EndBlock，返回空的验证人更新
 func (noOpConsensusEngine) EndBlock(ctx sdk.Context) []abci.ValidatorUpdate {
 	return nil
 }

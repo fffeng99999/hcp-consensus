@@ -17,6 +17,7 @@ type SimpleExecutor struct {
 	blockCount uint64
 }
 
+// NewSimpleExecutor 创建简单执行器实例
 func NewSimpleExecutor() *SimpleExecutor {
 	h := sha256.Sum256([]byte("genesis"))
 	return &SimpleExecutor{
@@ -26,6 +27,7 @@ func NewSimpleExecutor() *SimpleExecutor {
 	}
 }
 
+// ExecuteBlock 执行区块：更新状态哈希和 nonce
 func (e *SimpleExecutor) ExecuteBlock(block *core.Block) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -33,7 +35,7 @@ func (e *SimpleExecutor) ExecuteBlock(block *core.Block) error {
 	h.Write([]byte(e.stateHash))
 	for _, tx := range block.Txs {
 		h.Write([]byte(tx.ID))
-		// 简单模拟：更新nonce
+		// 简单模拟：更新 nonce
 		e.nonce[tx.From] = tx.Nonce
 	}
 	e.stateHash = hex.EncodeToString(h.Sum(nil))
@@ -41,12 +43,14 @@ func (e *SimpleExecutor) ExecuteBlock(block *core.Block) error {
 	return nil
 }
 
+// GetStateHash 获取当前状态哈希
 func (e *SimpleExecutor) GetStateHash() string {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.stateHash
 }
 
+// GetBlockCount 获取已执行区块数量
 func (e *SimpleExecutor) GetBlockCount() uint64 {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -60,6 +64,7 @@ type BatchVerifier struct {
 	batchSize int
 }
 
+// NewBatchVerifier 创建批量签名验证器
 func NewBatchVerifier(batchSize int, verifier func(data, sig []byte, pubKey string) bool) *BatchVerifier {
 	if batchSize <= 0 {
 		batchSize = 64
@@ -70,6 +75,7 @@ func NewBatchVerifier(batchSize int, verifier func(data, sig []byte, pubKey stri
 	}
 }
 
+// VerifyBatch 批量验证签名
 func (bv *BatchVerifier) VerifyBatch(items []VerifyItem) []bool {
 	results := make([]bool, len(items))
 	for i, item := range items {
@@ -78,6 +84,7 @@ func (bv *BatchVerifier) VerifyBatch(items []VerifyItem) []bool {
 	return results
 }
 
+// VerifyItem 待验证的签名项
 type VerifyItem struct {
 	Data   []byte
 	Sig    []byte
@@ -86,10 +93,11 @@ type VerifyItem struct {
 
 // ParallelSigVerifier 并行签名验证器
 type ParallelSigVerifier struct {
-	workers   int
-	verifier  func(data, sig []byte, pubKey string) bool
+	workers  int
+	verifier func(data, sig []byte, pubKey string) bool
 }
 
+// NewParallelSigVerifier 创建并行签名验证器
 func NewParallelSigVerifier(workers int, verifier func(data, sig []byte, pubKey string) bool) *ParallelSigVerifier {
 	if workers <= 0 {
 		workers = 4
@@ -100,6 +108,7 @@ func NewParallelSigVerifier(workers int, verifier func(data, sig []byte, pubKey 
 	}
 }
 
+// VerifyAll 并行验证所有签名项
 func (pv *ParallelSigVerifier) VerifyAll(items []VerifyItem) []bool {
 	if len(items) == 0 {
 		return nil
@@ -150,12 +159,13 @@ func (pv *ParallelSigVerifier) VerifyAll(items []VerifyItem) []bool {
 
 // TrustScorer 信任评分模型
 type TrustScorer struct {
-	mu       sync.Mutex
-	scores   map[string]*TrustScore
-	history  map[string][]bool // 节点 -> 最近100轮成功率
-	weights  TrustWeights
+	mu      sync.Mutex
+	scores  map[string]*TrustScore
+	history map[string][]bool // 节点 -> 最近100轮成功率
+	weights TrustWeights
 }
 
+// TrustScore 节点信任分数
 type TrustScore struct {
 	NodeID       string
 	SuccessRate  float64
@@ -164,16 +174,19 @@ type TrustScore struct {
 	TotalScore   float64
 }
 
+// TrustWeights 信任评分权重
 type TrustWeights struct {
 	W1 float64 // 成功率权重
 	W2 float64 // 质押权重
 	W3 float64 // 响应速度权重
 }
 
+// DefaultTrustWeights 返回默认信任权重
 func DefaultTrustWeights() TrustWeights {
 	return TrustWeights{W1: 0.4, W2: 0.3, W3: 0.3}
 }
 
+// NewTrustScorer 创建信任评分器
 func NewTrustScorer(weights TrustWeights) *TrustScorer {
 	return &TrustScorer{
 		scores:  make(map[string]*TrustScore),
@@ -182,6 +195,7 @@ func NewTrustScorer(weights TrustWeights) *TrustScorer {
 	}
 }
 
+// RecordRound 记录一轮共识结果，更新信任分数
 func (ts *TrustScorer) RecordRound(nodeID string, success bool, responseMs float64, stake float64, totalStake float64) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -224,6 +238,7 @@ func (ts *TrustScorer) RecordRound(nodeID string, success bool, responseMs float
 	ts.scores[nodeID] = score
 }
 
+// GetScore 获取指定节点的信任分数
 func (ts *TrustScorer) GetScore(nodeID string) *TrustScore {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -233,6 +248,7 @@ func (ts *TrustScorer) GetScore(nodeID string) *TrustScore {
 	return &TrustScore{NodeID: nodeID, TotalScore: 0.5}
 }
 
+// SelectValidators 根据信任分数选择验证者
 func (ts *TrustScorer) SelectValidators(minTrust float64, maxCount int, allNodes []string) []string {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()

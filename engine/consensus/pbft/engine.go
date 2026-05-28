@@ -11,7 +11,7 @@ import (
 	"github.com/fffeng99999/hcp-consensus/engine/core"
 )
 
-// State PBFT节点状态
+// State PBFT 节点状态
 type State int
 
 const (
@@ -42,9 +42,9 @@ type PBFT struct {
 	committed map[uint64]*core.Block
 
 	// 投票收集
-	prepareVotes   map[string]map[string]bool // height:blockHash -> nodeID -> bool
+	prepareVotes   map[string]map[string]bool // 高度和区块哈希 -> 节点ID -> 是否投票
 	commitVotes    map[string]map[string]bool
-	pendingCommits map[string][]*core.Message // 缓冲提前到达的Commit消息
+	pendingCommits map[string][]*core.Message // 缓冲提前到达的 Commit 消息
 
 	// 客户端请求追踪
 	pendingReqs map[string]*core.Tx
@@ -68,13 +68,13 @@ type PBFT struct {
 	startTime           time.Time
 
 	// === 可扩展钩子 ===
-	// BroadcastTargets 自定义广播目标列表，nil表示广播给所有节点
+	// BroadcastTargets 自定义广播目标列表，nil 表示广播给所有节点
 	BroadcastTargets func() []string
-	// ValidatorSelector 验证者选择器，返回允许参与共识的节点ID
+	// ValidatorSelector 验证者选择器，返回允许参与共识的节点 ID
 	ValidatorSelector func() []string
-	// OnPrePrepare 收到PrePrepare时的钩子
+	// OnPrePrepare 收到 PrePrepare 时的钩子
 	OnPrePrepare func(msg *core.Message) bool
-	// OnPrepare 收到Prepare时的钩子
+	// OnPrepare 收到 Prepare 时的钩子
 	OnPrepare func(msg *core.Message) bool
 	// OnCommit 提交区块后的钩子
 	OnCommit func(block *core.Block)
@@ -82,6 +82,7 @@ type PBFT struct {
 	ExtraLatencyMs float64
 }
 
+// LogEntry PBFT 日志条目
 type LogEntry struct {
 	Height     uint64
 	View       uint64
@@ -92,6 +93,7 @@ type LogEntry struct {
 	State      State
 }
 
+// ClientReply 客户端回复
 type ClientReply struct {
 	TxID      string
 	NodeID    string
@@ -100,6 +102,7 @@ type ClientReply struct {
 	Timestamp time.Time
 }
 
+// NewPBFT 创建 PBFT 引擎实例
 func NewPBFT() *PBFT {
 	return &PBFT{
 		log:            make(map[uint64]*LogEntry),
@@ -117,6 +120,7 @@ func NewPBFT() *PBFT {
 	}
 }
 
+// Init 初始化 PBFT 引擎
 func (p *PBFT) Init(cfg *core.NodeConfig, network core.Network, txPool core.TxPool, exec core.Executor) error {
 	p.cfg = cfg
 	p.network = network
@@ -134,6 +138,7 @@ func (p *PBFT) Init(cfg *core.NodeConfig, network core.Network, txPool core.TxPo
 	return nil
 }
 
+// Start 启动 PBFT 引擎
 func (p *PBFT) Start() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -149,6 +154,7 @@ func (p *PBFT) Start() error {
 	return nil
 }
 
+// Stop 停止 PBFT 引擎
 func (p *PBFT) Stop() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -160,6 +166,7 @@ func (p *PBFT) Stop() error {
 	return nil
 }
 
+// SubmitTx 提交交易
 func (p *PBFT) SubmitTx(tx *core.Tx) error {
 	p.mu.Lock()
 	if !p.running {
@@ -179,6 +186,7 @@ func (p *PBFT) SubmitTx(tx *core.Tx) error {
 	return p.network.Send(msg)
 }
 
+// GetStatus 获取引擎状态
 func (p *PBFT) GetStatus() core.EngineStatus {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -210,8 +218,9 @@ func (p *PBFT) GetStatus() core.EngineStatus {
 	}
 }
 
+// quorumSize 计算法定人数大小
 func (p *PBFT) quorumSize() int {
-	// 如果使用了ValidatorSelector，基于选中的集合计算
+	// 如果使用了 ValidatorSelector，基于选中的集合计算
 	if p.ValidatorSelector != nil {
 		sel := p.ValidatorSelector()
 		if len(sel) > 0 {
@@ -224,6 +233,7 @@ func (p *PBFT) quorumSize() int {
 	return 2*f + 1
 }
 
+// fSize 计算容错数量 f
 func (p *PBFT) fSize() int {
 	if p.ValidatorSelector != nil {
 		sel := p.ValidatorSelector()
@@ -234,6 +244,7 @@ func (p *PBFT) fSize() int {
 	return (len(p.cfg.AllNodes) - 1) / 3
 }
 
+// mainLoop 主消息循环
 func (p *PBFT) mainLoop() {
 	for {
 		select {
@@ -245,6 +256,7 @@ func (p *PBFT) mainLoop() {
 	}
 }
 
+// handleMessage 处理共识消息
 func (p *PBFT) handleMessage(msg *core.Message) {
 	if p.cfg.IsByzantine {
 		return
@@ -266,6 +278,7 @@ func (p *PBFT) handleMessage(msg *core.Message) {
 	}
 }
 
+// handleClientRequest 处理客户端请求
 func (p *PBFT) handleClientRequest(msg *core.Message) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -277,6 +290,7 @@ func (p *PBFT) handleClientRequest(msg *core.Message) {
 	}
 }
 
+// proposalLoop 领导者提议循环
 func (p *PBFT) proposalLoop() {
 	ticker := time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
@@ -290,6 +304,7 @@ func (p *PBFT) proposalLoop() {
 	}
 }
 
+// proposeBlock 提议新区块
 func (p *PBFT) proposeBlock() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -353,7 +368,7 @@ func (p *PBFT) proposeBlock() {
 	}
 	p.state = StatePrePrepared
 
-	// 领导者记录自己的Prepare投票
+	// 领导者记录自己的 Prepare 投票
 	prepareSig := p.signer.Sign([]byte(block.Hash))
 	prepare := &core.Message{
 		Type:      core.MsgPrepare,
@@ -387,6 +402,7 @@ func (p *PBFT) proposeBlock() {
 	}
 }
 
+// handlePrePrepare 处理 PrePrepare 消息
 func (p *PBFT) handlePrePrepare(msg *core.Message) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -441,14 +457,14 @@ func (p *PBFT) handlePrePrepare(msg *core.Message) {
 		Timestamp: time.Now(),
 	}
 	p.log[msg.Height].Prepares[p.cfg.NodeID] = prepare
-	// 记录自己的Prepare投票
+	// 记录自己的 Prepare 投票
 	key := fmt.Sprintf("%d:%s", msg.Height, msg.BlockHash)
 	if p.prepareVotes[key] == nil {
 		p.prepareVotes[key] = make(map[string]bool)
 	}
 	p.prepareVotes[key][p.cfg.NodeID] = true
 
-	// 检查是否已达到Prepared状态（包括自己的投票）
+	// 检查是否已达到 Prepared 状态（包括自己的投票）
 	qs := p.quorumSize()
 	if len(p.prepareVotes[key]) >= qs && p.log[msg.Height].State < StatePrepared {
 		p.log[msg.Height].State = StatePrepared
@@ -503,6 +519,7 @@ func (p *PBFT) handlePrePrepare(msg *core.Message) {
 	}
 }
 
+// handlePrepare 处理 Prepare 消息
 func (p *PBFT) handlePrepare(msg *core.Message) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -555,7 +572,7 @@ func (p *PBFT) handlePrepare(msg *core.Message) {
 			Timestamp: time.Now(),
 		}
 		entry.Commits[p.cfg.NodeID] = commit
-		// 记录自己的Commit投票
+		// 记录自己的 Commit 投票
 		commitKey := fmt.Sprintf("%d:%s", msg.Height, msg.BlockHash)
 		if p.commitVotes[commitKey] == nil {
 			p.commitVotes[commitKey] = make(map[string]bool)
@@ -579,6 +596,7 @@ func (p *PBFT) handlePrepare(msg *core.Message) {
 	}
 }
 
+// handleCommit 处理 Commit 消息
 func (p *PBFT) handleCommit(msg *core.Message) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -591,7 +609,7 @@ func (p *PBFT) handleCommit(msg *core.Message) {
 		return
 	}
 	if entry.State < StatePrepared {
-		// 缓冲Commit消息，等达到Prepared后再处理
+		// 缓冲 Commit 消息，等达到 Prepared 后再处理
 		if p.pendingCommits == nil {
 			p.pendingCommits = make(map[string][]*core.Message)
 		}
@@ -621,7 +639,7 @@ func (p *PBFT) handleCommit(msg *core.Message) {
 	}
 }
 
-// processPendingCommits 处理缓冲的Commit消息
+// processPendingCommits 处理缓冲的 Commit 消息
 func (p *PBFT) processPendingCommits(blockHash string, height uint64) {
 	key := fmt.Sprintf("%d:%s", height, blockHash)
 	commits, ok := p.pendingCommits[key]
@@ -654,6 +672,7 @@ func (p *PBFT) processPendingCommits(blockHash string, height uint64) {
 	}
 }
 
+// commitBlock 提交区块
 func (p *PBFT) commitBlock(block *core.Block) {
 	p.committed[block.Height] = block
 	p.height = block.Height
@@ -664,7 +683,7 @@ func (p *PBFT) commitBlock(block *core.Block) {
 	for _, tx := range block.Txs {
 		txIDs = append(txIDs, tx.ID)
 		delete(p.pendingReqs, tx.ID)
-		// 使用SubmitTime计算端到端延迟（微秒精度）
+		// 使用 SubmitTime 计算端到端延迟（微秒精度）
 		if !tx.SubmitTime.IsZero() {
 			latencyUs := now.Sub(tx.SubmitTime).Microseconds()
 			if latencyUs > 0 {
@@ -694,44 +713,67 @@ func (p *PBFT) commitBlock(block *core.Block) {
 	}
 }
 
+// handleViewChange 处理视图变更消息（暂未实现）
 func (p *PBFT) handleViewChange(msg *core.Message) {}
-func (p *PBFT) handleNewView(msg *core.Message)    {}
+
+// handleNewView 处理新视图消息（暂未实现）
+func (p *PBFT) handleNewView(msg *core.Message) {}
 
 // === 公开访问方法（供子类/外部使用）===
-func (p *PBFT) GetNodeID() string        { return p.cfg.NodeID }
+
+// GetNodeID 获取节点 ID
+func (p *PBFT) GetNodeID() string { return p.cfg.NodeID }
+
+// GetNetwork 获取网络接口
 func (p *PBFT) GetNetwork() core.Network { return p.network }
-func (p *PBFT) GetTxPool() core.TxPool   { return p.txPool }
+
+// GetTxPool 获取交易池
+func (p *PBFT) GetTxPool() core.TxPool { return p.txPool }
+
+// GetHeight 获取当前高度
 func (p *PBFT) GetHeight() uint64 {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.height
 }
+
+// GetView 获取当前视图
 func (p *PBFT) GetView() uint64 {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.view
 }
+
+// GetState 获取当前状态
 func (p *PBFT) GetState() State {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.state
 }
+
+// IsLeader 判断是否为领导者
 func (p *PBFT) IsLeader() bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.isLeader
 }
+
+// SetState 设置状态
 func (p *PBFT) SetState(s State) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.state = s
 }
+
+// GetAllNodes 获取所有节点列表
 func (p *PBFT) GetAllNodes() []string {
 	if p.cfg == nil {
 		return nil
 	}
 	return p.cfg.AllNodes
 }
+
+// GetCommittedHash 获取指定高度已提交区块的哈希
 func (p *PBFT) GetCommittedHash(height uint64) string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -740,15 +782,27 @@ func (p *PBFT) GetCommittedHash(height uint64) string {
 	}
 	return ""
 }
+
+// SignData 对数据签名
 func (p *PBFT) SignData(data []byte) []byte {
 	return p.signer.Sign(data)
 }
+
+// RecordLog 记录日志条目
 func (p *PBFT) RecordLog(height uint64, entry *LogEntry) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.log[height] = entry
 }
-func (p *PBFT) Lock()    { p.mu.Lock() }
-func (p *PBFT) Unlock()  { p.mu.Unlock() }
-func (p *PBFT) RLock()   { p.mu.RLock() }
+
+// Lock 获取写锁
+func (p *PBFT) Lock() { p.mu.Lock() }
+
+// Unlock 释放写锁
+func (p *PBFT) Unlock() { p.mu.Unlock() }
+
+// RLock 获取读锁
+func (p *PBFT) RLock() { p.mu.RLock() }
+
+// RUnlock 释放读锁
 func (p *PBFT) RUnlock() { p.mu.RUnlock() }

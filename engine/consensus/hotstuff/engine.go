@@ -20,7 +20,7 @@ type HotStuff struct {
 	txPool   core.TxPool
 	executor core.Executor
 
-	// HotStuff状态
+	// HotStuff 状态
 	height           uint64
 	view             uint64
 	leaderID         string
@@ -32,7 +32,7 @@ type HotStuff struct {
 	commitQC         *core.QuorumCertificate
 
 	// 投票收集
-	prepareVotes   map[uint64]map[string]*core.Message // height -> nodeID -> vote
+	prepareVotes   map[uint64]map[string]*core.Message // 高度 -> 节点ID -> 投票消息
 	precommitVotes map[uint64]map[string]*core.Message
 	commitVotes    map[uint64]map[string]*core.Message
 
@@ -41,7 +41,7 @@ type HotStuff struct {
 	latencyLog  []float64
 
 	// 区块存储
-	blocks map[uint64]*core.Block // height -> block
+	blocks map[uint64]*core.Block // 高度 -> 区块
 
 	// 控制
 	running     bool

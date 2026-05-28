@@ -2,8 +2,8 @@ package cometbft
 
 import (
 	"github.com/fffeng99999/hcp-consensus/engine/common"
+	"github.com/fffeng99999/hcp-consensus/engine/consensus/pbft"
 	"github.com/fffeng99999/hcp-consensus/engine/core"
-	"github.com/fffeng99999/hcp-consensus/engine/pbft"
 )
 
 // CometBFT 模拟 CometBFT 共识引擎（基于 PBFT + 流水线优化）
@@ -16,12 +16,14 @@ type CometBFT struct {
 	*pbft.PBFT
 }
 
+// NewCometBFT 创建 CometBFT 引擎实例
 func NewCometBFT() *CometBFT {
 	return &CometBFT{
 		PBFT: pbft.NewPBFT(),
 	}
 }
 
+// Init 初始化 CometBFT 引擎
 func (c *CometBFT) Init(cfg *core.NodeConfig, network core.Network, txPool core.TxPool, exec core.Executor) error {
 	// 先调用 PBFT 的初始化
 	if err := c.PBFT.Init(cfg, network, txPool, exec); err != nil {
@@ -58,7 +60,7 @@ func SetExtraLatency(c *CometBFT, ms float64) {
 	c.PBFT.ExtraLatencyMs = ms
 }
 
-// math.Max for int
+// maxInt 返回两个整数中的较大值
 func maxInt(a, b int) int {
 	if a > b {
 		return a
@@ -66,6 +68,7 @@ func maxInt(a, b int) int {
 	return b
 }
 
+// minInt 返回两个整数中的较小值
 func minInt(a, b int) int {
 	if a < b {
 		return a

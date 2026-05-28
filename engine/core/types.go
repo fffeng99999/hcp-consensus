@@ -107,6 +107,7 @@ type Tx struct {
 	CommitTime  time.Time // 区块提交时间（由各节点设置）
 }
 
+// NewTx 创建一笔新交易
 func NewTx(payload []byte, from string, nonce uint64) *Tx {
 	h := sha256.Sum256(payload)
 	return &Tx{
@@ -130,6 +131,7 @@ type Block struct {
 	QC        *QuorumCertificate
 }
 
+// UpdateCommitWindow 更新提交时间窗口：记录最早提交时间和最晚提交时间
 func UpdateCommitWindow(firstSubmitUnixNano *int64, lastCommitUnixNano *int64, block *Block, commitTime time.Time) {
 	if block == nil {
 		return
@@ -152,6 +154,7 @@ func UpdateCommitWindow(firstSubmitUnixNano *int64, lastCommitUnixNano *int64, b
 	atomic.StoreInt64(lastCommitUnixNano, commitTime.UnixNano())
 }
 
+// ComputeHash 计算区块哈希
 func (b *Block) ComputeHash() string {
 	h := sha256.New()
 	fmt.Fprintf(h, "%d|%s|%s|%d", b.Height, b.PrevHash, b.Proposer, len(b.Txs))
@@ -273,10 +276,12 @@ type Signer struct {
 	PubKeys map[string]ed25519.PublicKey
 }
 
+// Sign 对数据进行签名
 func (s *Signer) Sign(data []byte) []byte {
 	return ed25519.Sign(s.PrivKey, data)
 }
 
+// Verify 验证指定节点的签名
 func (s *Signer) Verify(nodeID string, data, sig []byte) bool {
 	pk, ok := s.PubKeys[nodeID]
 	if !ok {

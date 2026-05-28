@@ -8,12 +8,13 @@ import (
 
 // MemTxPool 内存交易池
 type MemTxPool struct {
-	mu       sync.RWMutex
-	txs      map[string]*core.Tx
-	order    []string
-	maxSize  int
+	mu      sync.RWMutex
+	txs     map[string]*core.Tx
+	order   []string
+	maxSize int
 }
 
+// NewMemTxPool 创建内存交易池
 func NewMemTxPool(maxSize int) *MemTxPool {
 	if maxSize <= 0 {
 		maxSize = 100000
@@ -25,6 +26,7 @@ func NewMemTxPool(maxSize int) *MemTxPool {
 	}
 }
 
+// AddTx 添加交易到池中
 func (p *MemTxPool) AddTx(tx *core.Tx) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -42,6 +44,7 @@ func (p *MemTxPool) AddTx(tx *core.Tx) error {
 	return nil
 }
 
+// GetTxs 获取最多 max 笔交易
 func (p *MemTxPool) GetTxs(max int) []*core.Tx {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -57,13 +60,14 @@ func (p *MemTxPool) GetTxs(max int) []*core.Tx {
 	return result
 }
 
+// RemoveTxs 从池中移除指定交易
 func (p *MemTxPool) RemoveTxs(txIDs []string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, id := range txIDs {
 		delete(p.txs, id)
 	}
-	// 重建order
+	// 重建 order
 	newOrder := make([]string, 0, len(p.order))
 	for _, id := range p.order {
 		if _, exists := p.txs[id]; exists {
@@ -73,6 +77,7 @@ func (p *MemTxPool) RemoveTxs(txIDs []string) {
 	p.order = newOrder
 }
 
+// PendingCount 返回待处理交易数量
 func (p *MemTxPool) PendingCount() int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

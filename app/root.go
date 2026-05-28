@@ -87,7 +87,7 @@ func NewRootCmd() *cobra.Command {
 		Short: "HCP Consensus Node Daemon",
 		Long:  "High-frequency trading blockchain consensus performance testing system",
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-			// set the default command outputs
+			// 设置命令默认输出流
 			cmd.SetOut(cmd.OutOrStdout())
 			cmd.SetErr(cmd.ErrOrStderr())
 
@@ -139,6 +139,7 @@ func NewRootCmd() *cobra.Command {
 	return rootCmd
 }
 
+// addModuleInitFlags 为 start 命令添加各共识引擎的初始化参数标志
 func addModuleInitFlags(startCmd *cobra.Command) {
 	startCmd.Flags().String("consensus-engine", "tpbft", "共识引擎类型")
 	startCmd.Flags().Int("pow-node-count", 4, "PoW 节点数量")
@@ -187,6 +188,7 @@ func addModuleInitFlags(startCmd *cobra.Command) {
 	startCmd.Flags().Int("hierarchical-batch-size", 200, "分层TPBFT每块交易批量")
 }
 
+// queryCommand 创建查询子命令
 func queryCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                        "query",
@@ -209,6 +211,7 @@ func queryCommand() *cobra.Command {
 	return cmd
 }
 
+// customCollectGenTxsCmd 自定义收集创世交易命令
 func customCollectGenTxsCmd(genBalIterator banktypes.GenesisBalancesIterator, defaultNodeHome string, genTxValidator genutiltypes.MessageValidator, valAddrCodec coreaddress.Codec) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "collect-gentxs",
@@ -247,6 +250,7 @@ func customCollectGenTxsCmd(genBalIterator banktypes.GenesisBalancesIterator, de
 	return cmd
 }
 
+// txCommand 创建交易子命令
 func txCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                        "tx",
@@ -273,10 +277,12 @@ func txCommand() *cobra.Command {
 	return cmd
 }
 
+// newApp 创建应用实例的工厂函数
 func newApp(logger log.Logger, db dbm.DB, traceStore io.Writer, appOpts servertypes.AppOptions) servertypes.Application {
 	return NewApp(logger, db, traceStore, true, appOpts)
 }
 
+// createHcpAppAndExport 创建应用并导出状态（当前为空实现）
 func createHcpAppAndExport(
 	logger log.Logger,
 	db dbm.DB,
@@ -310,7 +316,6 @@ func CustomGenesisCoreCommand(txConfig client.TxConfig, moduleBasics module.Basi
 	cmd.AddCommand(
 		genutilcli.GenTxCmd(moduleBasics, txConfig, banktypes.GenesisBalancesIterator{}, defaultNodeHome, validatorCodec),
 		genutilcli.MigrateGenesisCmd(genutilcli.MigrationMap),
-		// genutilcli.CollectGenTxsCmd(banktypes.GenesisBalancesIterator{}, defaultNodeHome, gentxModule.GenTxValidator, address.NewBech32Codec("hcpvaloper")),
 		customCollectGenTxsCmd(banktypes.GenesisBalancesIterator{}, defaultNodeHome, gentxModule.GenTxValidator, sdkaddress.NewBech32Codec("hcpvaloper")),
 		genutilcli.ValidateGenesisCmd(moduleBasics),
 		genutilcli.AddGenesisAccountCmd(defaultNodeHome, txConfig.SigningContext().AddressCodec()),

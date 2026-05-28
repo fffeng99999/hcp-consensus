@@ -23,6 +23,7 @@ func ComputeLatencyStats(latencies []float64) (p50, p95, p99 float64) {
 	return
 }
 
+// percentile 计算已排序数组的指定分位数
 func percentile(sorted []float64, p float64) float64 {
 	if len(sorted) == 0 {
 		return 0

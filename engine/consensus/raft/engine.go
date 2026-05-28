@@ -11,7 +11,7 @@ import (
 	"github.com/fffeng99999/hcp-consensus/engine/core"
 )
 
-// Role Raft节点角色
+// Role Raft 节点角色
 type Role int
 
 const (
@@ -21,6 +21,7 @@ const (
 )
 
 // Raft 崩溃容错共识引擎（简化但功能完整）
+// 基于日志复制和领导者选举，适用于非拜占庭容错场景
 type Raft struct {
 	mu sync.RWMutex
 
@@ -35,7 +36,7 @@ type Raft struct {
 	commitIndex uint64
 	lastApplied uint64
 
-	// Leader追踪follower匹配状态
+	// Leader 追踪 follower 匹配状态
 	matchIndex map[string]uint64
 
 	pendingReqs map[string]*core.Tx
@@ -55,12 +56,14 @@ type Raft struct {
 	ExtraLatencyMs      float64
 }
 
+// RaftLogEntry Raft 日志条目
 type RaftLogEntry struct {
 	Term  uint64
 	Index uint64
 	Block *core.Block
 }
 
+// NewRaft 创建 Raft 引擎实例
 func NewRaft() *Raft {
 	return &Raft{
 		log:         make([]*RaftLogEntry, 0),
@@ -73,6 +76,7 @@ func NewRaft() *Raft {
 	}
 }
 
+// Init 初始化 Raft 引擎
 func (r *Raft) Init(cfg *core.NodeConfig, network core.Network, txPool core.TxPool, exec core.Executor) error {
 	r.cfg = cfg
 	r.network = network
@@ -90,6 +94,7 @@ func (r *Raft) Init(cfg *core.NodeConfig, network core.Network, txPool core.TxPo
 	return nil
 }
 
+// Start 启动 Raft 引擎
 func (r *Raft) Start() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -99,7 +104,7 @@ func (r *Raft) Start() error {
 	r.running = true
 	r.startTime = time.Now()
 	go r.mainLoop()
-	// 简化：第一个节点始终作为leader（避免选举复杂性）
+	// 简化：第一个节点始终作为 leader（避免选举复杂性）
 	if r.cfg.NodeID == r.cfg.AllNodes[0] {
 		r.role = RoleLeader
 		for _, node := range r.cfg.AllNodes {
@@ -112,6 +117,7 @@ func (r *Raft) Start() error {
 	return nil
 }
 
+// Stop 停止 Raft 引擎
 func (r *Raft) Stop() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -123,6 +129,7 @@ func (r *Raft) Stop() error {
 	return nil
 }
 
+// SubmitTx 提交交易
 func (r *Raft) SubmitTx(tx *core.Tx) error {
 	r.mu.Lock()
 	if !r.running {
@@ -137,13 +144,13 @@ func (r *Raft) SubmitTx(tx *core.Tx) error {
 	r.mu.Unlock()
 
 	if isLeader {
-		// 由leaderLoop定期处理
+		// 由 leaderLoop 定期处理
 	} else {
-		// 转发给leader
+		// 转发给 leader
 		msg := &core.Message{
 			Type:      core.MsgClientRequest,
 			From:      r.cfg.NodeID,
-			To:        r.cfg.AllNodes[0], // 直接发给leader
+			To:        r.cfg.AllNodes[0], // 直接发给 leader
 			Tx:        tx,
 			Timestamp: time.Now(),
 		}
@@ -152,6 +159,7 @@ func (r *Raft) SubmitTx(tx *core.Tx) error {
 	return nil
 }
 
+// GetStatus 获取引擎状态
 func (r *Raft) GetStatus() core.EngineStatus {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -186,10 +194,12 @@ func (r *Raft) GetStatus() core.EngineStatus {
 	}
 }
 
+// quorumSize 计算法定人数大小
 func (r *Raft) quorumSize() int {
 	return len(r.cfg.AllNodes)/2 + 1
 }
 
+// mainLoop 主消息循环
 func (r *Raft) mainLoop() {
 	for {
 		select {
@@ -201,6 +211,7 @@ func (r *Raft) mainLoop() {
 	}
 }
 
+// handleMessage 处理共识消息
 func (r *Raft) handleMessage(msg *core.Message) {
 	if r.cfg.IsByzantine {
 		return
@@ -215,6 +226,7 @@ func (r *Raft) handleMessage(msg *core.Message) {
 	}
 }
 
+// handleClientRequest 处理客户端请求
 func (r *Raft) handleClientRequest(msg *core.Message) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -226,6 +238,7 @@ func (r *Raft) handleClientRequest(msg *core.Message) {
 	}
 }
 
+// leaderLoop 领导者循环
 func (r *Raft) leaderLoop() {
 	ticker := time.NewTicker(1 * time.Millisecond)
 	defer ticker.Stop()
@@ -246,6 +259,7 @@ func (r *Raft) leaderLoop() {
 	}
 }
 
+// appendBlock 追加新区块
 func (r *Raft) appendBlock() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -264,7 +278,7 @@ func (r *Raft) appendBlock() {
 	if len(txs) == 0 {
 		return
 	}
-	// 从pendingReqs中移除
+	// 从 pendingReqs 中移除
 	for _, tx := range txs {
 		delete(r.pendingReqs, tx.ID)
 	}
@@ -290,10 +304,11 @@ func (r *Raft) appendBlock() {
 	}
 	r.log = append(r.log, entry)
 
-	// 广播AppendEntries
+	// 广播 AppendEntries
 	r.broadcastAppendEntries(entry)
 }
 
+// broadcastAppendEntries 广播追加条目消息
 func (r *Raft) broadcastAppendEntries(entry *RaftLogEntry) {
 	entriesData, _ := json.Marshal([]*RaftLogEntry{entry})
 	for _, nodeID := range r.cfg.AllNodes {
@@ -312,6 +327,7 @@ func (r *Raft) broadcastAppendEntries(entry *RaftLogEntry) {
 	}
 }
 
+// handleAppendEntries 处理追加条目消息
 func (r *Raft) handleAppendEntries(msg *core.Message) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -329,13 +345,13 @@ func (r *Raft) handleAppendEntries(msg *core.Message) {
 		}
 	}
 
-	// 跟随leader的commitIndex
+	// 跟随 leader 的 commitIndex
 	if msg.Height > r.commitIndex && msg.Height < uint64(len(r.log)) {
 		r.commitIndex = msg.Height
 		r.applyCommitted()
 	}
 
-	// 回复leader，告知当前log长度-1
+	// 回复 leader，告知当前 log 长度减一
 	rsp := &core.Message{
 		Type:      core.MsgAppendEntriesRsp,
 		From:      r.cfg.NodeID,
@@ -346,6 +362,7 @@ func (r *Raft) handleAppendEntries(msg *core.Message) {
 	r.network.Send(rsp)
 }
 
+// handleAppendEntriesRsp 处理追加条目响应
 func (r *Raft) handleAppendEntriesRsp(msg *core.Message) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -355,9 +372,9 @@ func (r *Raft) handleAppendEntriesRsp(msg *core.Message) {
 
 	r.matchIndex[msg.From] = msg.Height
 
-	// 检查是否可以提交（从最新log向下检查）
+	// 检查是否可以提交（从最新 log 向下检查）
 	for idx := uint64(len(r.log) - 1); idx > r.commitIndex; idx-- {
-		matchCount := 1 // leader自己
+		matchCount := 1 // leader 自己
 		for _, mIdx := range r.matchIndex {
 			if mIdx >= idx {
 				matchCount++
@@ -371,6 +388,7 @@ func (r *Raft) handleAppendEntriesRsp(msg *core.Message) {
 	}
 }
 
+// applyCommitted 应用已提交的日志条目
 func (r *Raft) applyCommitted() {
 	for r.lastApplied < r.commitIndex {
 		r.lastApplied++
@@ -412,6 +430,7 @@ func (r *Raft) applyCommitted() {
 	}
 }
 
+// broadcastHeartbeat 广播心跳消息
 func (r *Raft) broadcastHeartbeat() {
 	for _, nodeID := range r.cfg.AllNodes {
 		if nodeID == r.cfg.NodeID {

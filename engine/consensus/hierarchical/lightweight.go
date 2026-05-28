@@ -2,20 +2,18 @@ package hierarchical
 
 import (
 	"fmt"
-	"math"
 	"sync"
 	"time"
 
 	"github.com/fffeng99999/hcp-consensus/engine/common"
+	"github.com/fffeng99999/hcp-consensus/engine/consensus/pbft"
+	"github.com/fffeng99999/hcp-consensus/engine/consensus/raft"
 	"github.com/fffeng99999/hcp-consensus/engine/core"
-	"github.com/fffeng99999/hcp-consensus/engine/pbft"
-	"github.com/fffeng99999/hcp-consensus/engine/raft"
 )
 
-// HierarchicalTPBFT 分层信任增强型PBFT
-// 简化实现：组内运行独立共识，组间通过代表协调
-// 为实验目的，采用单组全功能共识模型，通信复杂度按分组压缩
-type HierarchicalTPBFT struct {
+// HierarchicalLightweight 分层轻量级共识
+// 使用更小的共识委员会和更轻量的消息机制
+type HierarchicalLightweight struct {
 	innerEngine core.ConsensusEngine
 	cfg         *core.NodeConfig
 	groupCount  int
@@ -23,7 +21,6 @@ type HierarchicalTPBFT struct {
 	groupID     int
 	groupPeers  []string
 	outerPeers  []string
-	innerType   string
 
 	mu               sync.RWMutex
 	running          bool
@@ -34,30 +31,29 @@ type HierarchicalTPBFT struct {
 	startTime        time.Time
 }
 
-func NewHierarchicalTPBFT(groupCount int, innerType string, minTrust float64) *HierarchicalTPBFT {
-	if groupCount <= 0 {
-		groupCount = 1
-	}
-	if innerType == "" {
-		innerType = "pbft"
-	}
-	return &HierarchicalTPBFT{
-		groupCount:  groupCount,
-		innerType:   innerType,
+// NewHierarchicalLightweight 创建分层轻量级共识引擎实例
+func NewHierarchicalLightweight() *HierarchicalLightweight {
+	return &HierarchicalLightweight{
+		groupCount:  2,
 		pendingReqs: make(map[string]*core.Tx),
 		submitTimes: make(map[string]time.Time),
 		latencyLog:  make([]float64, 0),
 	}
 }
 
-func (h *HierarchicalTPBFT) Init(cfg *core.NodeConfig, network core.Network, txPool core.TxPool, exec core.Executor) error {
+// Init 初始化分层轻量级共识引擎
+func (h *HierarchicalLightweight) Init(cfg *core.NodeConfig, network core.Network, txPool core.TxPool, exec core.Executor) error {
 	h.cfg = cfg
 
-	// 计算分组
+	h.groupCount = 2
+	if len(cfg.AllNodes) < 4 {
+		h.groupCount = 1
+	}
 	h.groupSize = len(cfg.AllNodes) / h.groupCount
 	if h.groupSize <= 0 {
 		h.groupSize = 1
 	}
+
 	for i, node := range cfg.AllNodes {
 		if node == cfg.NodeID {
 			h.groupID = i / h.groupSize
@@ -65,7 +61,6 @@ func (h *HierarchicalTPBFT) Init(cfg *core.NodeConfig, network core.Network, txP
 		}
 	}
 
-	// 同组节点
 	start := h.groupID * h.groupSize
 	end := start + h.groupSize
 	if end > len(cfg.AllNodes) {
@@ -76,7 +71,6 @@ func (h *HierarchicalTPBFT) Init(cfg *core.NodeConfig, network core.Network, txP
 		h.groupPeers = append(h.groupPeers, cfg.AllNodes[i])
 	}
 
-	// 组间代表节点（每组的第一个节点）
 	h.outerPeers = make([]string, 0)
 	for g := 0; g < h.groupCount; g++ {
 		idx := g * h.groupSize
@@ -85,7 +79,6 @@ func (h *HierarchicalTPBFT) Init(cfg *core.NodeConfig, network core.Network, txP
 		}
 	}
 
-	// 创建innerEngine配置（只包含同组节点）
 	innerCfg := &core.NodeConfig{
 		NodeID:     cfg.NodeID,
 		Addr:       cfg.Addr,
@@ -94,32 +87,16 @@ func (h *HierarchicalTPBFT) Init(cfg *core.NodeConfig, network core.Network, txP
 		PublicKeys: cfg.PublicKeys,
 	}
 
-	// 创建过滤网络（只和同组节点通信）
 	innerAllowed := make(map[string]bool)
 	for _, n := range h.groupPeers {
 		innerAllowed[n] = true
 	}
 	innerNet := &FilteredNetwork{Network: network, allowedNodes: innerAllowed, nodeID: cfg.NodeID}
 
-	// 创建innerEngine
-	if h.innerType == "raft" {
-		h.innerEngine = raft.NewRaft()
-		// 为Raft配置简化：第一个节点总是leader
-	} else {
-		inner := pbft.NewPBFT()
-		// 配置信任评分和广播目标
-		selectedCount := int(math.Max(2, float64(len(h.groupPeers))*0.8))
-		if selectedCount > len(h.groupPeers) {
-			selectedCount = len(h.groupPeers)
-		}
-		selected := h.groupPeers[:selectedCount]
-		inner.ValidatorSelector = func() []string { return selected }
-		inner.BroadcastTargets = func() []string { return selected }
-		// 签名验证延迟基于选中节点数
-		c := len(selected)
-		inner.ExtraLatencyMs = (float64(c*(c-1)*2) * 0.18) / 4.0
-		h.innerEngine = inner
-	}
+	// 使用 Raft 作为 innerEngine（更轻量）
+	inner := raft.NewRaft()
+	// 使用 Raft 默认配置，通过 FilteredNetwork 减少通信量
+	h.innerEngine = inner
 
 	innerPool := common.NewMemTxPool(100000)
 	innerExec := exec
@@ -129,7 +106,8 @@ func (h *HierarchicalTPBFT) Init(cfg *core.NodeConfig, network core.Network, txP
 	return h.innerEngine.Init(innerCfg, innerNet, innerPool, innerExec)
 }
 
-func (h *HierarchicalTPBFT) Start() error {
+// Start 启动分层轻量级共识引擎
+func (h *HierarchicalLightweight) Start() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.running {
@@ -140,7 +118,8 @@ func (h *HierarchicalTPBFT) Start() error {
 	return h.innerEngine.Start()
 }
 
-func (h *HierarchicalTPBFT) Stop() error {
+// Stop 停止分层轻量级共识引擎
+func (h *HierarchicalLightweight) Stop() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if !h.running {
@@ -150,7 +129,8 @@ func (h *HierarchicalTPBFT) Stop() error {
 	return h.innerEngine.Stop()
 }
 
-func (h *HierarchicalTPBFT) SubmitTx(tx *core.Tx) error {
+// SubmitTx 提交交易
+func (h *HierarchicalLightweight) SubmitTx(tx *core.Tx) error {
 	h.mu.Lock()
 	if !h.running {
 		h.mu.Unlock()
@@ -164,7 +144,8 @@ func (h *HierarchicalTPBFT) SubmitTx(tx *core.Tx) error {
 	return h.innerEngine.SubmitTx(tx)
 }
 
-func (h *HierarchicalTPBFT) GetStatus() core.EngineStatus {
+// GetStatus 获取引擎状态
+func (h *HierarchicalLightweight) GetStatus() core.EngineStatus {
 	innerStatus := h.innerEngine.GetStatus()
 
 	h.mu.RLock()
@@ -179,7 +160,6 @@ func (h *HierarchicalTPBFT) GetStatus() core.EngineStatus {
 		tps = innerStatus.TPS
 	}
 
-	// 使用innerEngine的延迟数据
 	p50, p95, p99 := innerStatus.P50LatencyMs, innerStatus.P95LatencyMs, innerStatus.P99LatencyMs
 	if p99 <= 0 {
 		p50, p95, p99 = common.ComputeLatencyStats(h.latencyLog)
@@ -202,6 +182,23 @@ func (h *HierarchicalTPBFT) GetStatus() core.EngineStatus {
 	}
 }
 
-func (h *HierarchicalTPBFT) GetGroupInfo() (groupID, groupCount, groupSize int, peers, reps []string) {
-	return h.groupID, h.groupCount, h.groupSize, h.groupPeers, h.outerPeers
+// ComputeLatencyStats 计算延迟统计（辅助函数）
+func ComputeLatencyStats(latencies []float64) (p50, p95, p99 float64) {
+	return common.ComputeLatencyStats(latencies)
+}
+
+// ValidatorSelectorFn 验证者选择器类型别名
+type ValidatorSelectorFn = func() []string
+
+// SetPBFTExtraLatency 设置 PBFT 额外延迟
+func SetPBFTExtraLatency(pb *pbft.PBFT, ms float64) {
+	pb.ExtraLatencyMs = ms
+}
+
+// maxInt 返回两个整数中的较大值
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

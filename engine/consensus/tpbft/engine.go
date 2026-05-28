@@ -4,23 +4,24 @@ import (
 	"sync"
 
 	"github.com/fffeng99999/hcp-consensus/engine/common"
+	"github.com/fffeng99999/hcp-consensus/engine/consensus/pbft"
 	"github.com/fffeng99999/hcp-consensus/engine/core"
-	"github.com/fffeng99999/hcp-consensus/engine/pbft"
 )
 
-// TPBFT 信任增强型PBFT
+// TPBFT 是信任增强型 PBFT，在 PBFT 基础上加入信任评分与验证者筛选。
 type TPBFT struct {
 	mu sync.RWMutex
 
-	pbftEngine     *pbft.PBFT // 基础PBFT引擎
-	trustScorer    *common.TrustScorer
-	minTrust       float64
-	maxValidators  int
-	selectedVals   []string // 当前选中的验证者集合
-	totalStake     float64
-	cfg            *core.NodeConfig
+	pbftEngine    *pbft.PBFT
+	trustScorer   *common.TrustScorer
+	minTrust      float64
+	maxValidators int
+	selectedVals  []string
+	totalStake    float64
+	cfg           *core.NodeConfig
 }
 
+// NewTPBFT 创建 TPBFT 引擎实例。
 func NewTPBFT(minTrust float64, maxValidators int) *TPBFT {
 	if minTrust <= 0 {
 		minTrust = 0.6
@@ -28,78 +29,84 @@ func NewTPBFT(minTrust float64, maxValidators int) *TPBFT {
 	if maxValidators <= 0 {
 		maxValidators = 100
 	}
-	t := &TPBFT{
+	return &TPBFT{
 		pbftEngine:    pbft.NewPBFT(),
 		trustScorer:   common.NewTrustScorer(common.DefaultTrustWeights()),
 		minTrust:      minTrust,
 		maxValidators: maxValidators,
 	}
-	return t
 }
 
+// Init 初始化 TPBFT 引擎。
 func (t *TPBFT) Init(cfg *core.NodeConfig, network core.Network, txPool core.TxPool, exec core.Executor) error {
 	t.cfg = cfg
-	err := t.pbftEngine.Init(cfg, network, txPool, exec)
-	if err != nil {
-		return err
-	}
-	// 初始选中所有节点
 	t.selectedVals = make([]string, len(cfg.AllNodes))
 	copy(t.selectedVals, cfg.AllNodes)
-	return nil
+	return t.pbftEngine.Init(cfg, network, txPool, exec)
 }
 
+// GetPBFT 返回底层 PBFT 引擎，供 factory 配置广播目标和额外延迟。
 func (t *TPBFT) GetPBFT() *pbft.PBFT {
 	return t.pbftEngine
 }
 
+// Start 启动 TPBFT 引擎。
 func (t *TPBFT) Start() error {
-	// 启动前先更新验证者集合
 	t.updateValidatorSet()
 	return t.pbftEngine.Start()
 }
 
+// Stop 停止 TPBFT 引擎。
 func (t *TPBFT) Stop() error {
 	return t.pbftEngine.Stop()
 }
 
+// SubmitTx 提交交易到底层 PBFT 引擎。
 func (t *TPBFT) SubmitTx(tx *core.Tx) error {
 	return t.pbftEngine.SubmitTx(tx)
 }
 
+// GetStatus 获取底层 PBFT 引擎状态。
 func (t *TPBFT) GetStatus() core.EngineStatus {
 	return t.pbftEngine.GetStatus()
 }
 
+// updateValidatorSet 根据信任分数更新验证者集合。
 func (t *TPBFT) updateValidatorSet() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.trustScorer == nil || t.cfg == nil {
+		return
+	}
+	selected := t.trustScorer.SelectValidators(t.minTrust, t.maxValidators, t.cfg.AllNodes)
+	if len(selected) == 0 {
+		selected = make([]string, len(t.cfg.AllNodes))
+		copy(selected, t.cfg.AllNodes)
+	}
+	t.selectedVals = selected
+}
+
+// RecordTrustRound 记录一轮共识的信任数据。
+func (t *TPBFT) RecordTrustRound(nodeID string, success bool, responseMs float64, stake float64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.trustScorer == nil {
 		return
 	}
-	allNodes := t.cfg.AllNodes
-	selected := t.trustScorer.SelectValidators(t.minTrust, t.maxValidators, allNodes)
-	if len(selected) == 0 {
-		// 如果筛选结果为空，保留所有节点
-		selected = make([]string, len(allNodes))
-		copy(selected, allNodes)
-	}
-	t.selectedVals = selected
-}
-
-// RecordTrustRound 记录一轮共识的信任数据（供外部调用）
-func (t *TPBFT) RecordTrustRound(nodeID string, success bool, responseMs float64, stake float64) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
 	t.trustScorer.RecordRound(nodeID, success, responseMs, stake, t.totalStake)
 }
 
+// GetTrustScore 获取指定节点的信任分数。
 func (t *TPBFT) GetTrustScore(nodeID string) *common.TrustScore {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+	if t.trustScorer == nil {
+		return nil
+	}
 	return t.trustScorer.GetScore(nodeID)
 }
 
+// GetSelectedValidators 获取当前选中的验证者集合。
 func (t *TPBFT) GetSelectedValidators() []string {
 	t.mu.RLock()
 	defer t.mu.RUnlock()

@@ -25,12 +25,14 @@ import (
 	"github.com/fffeng99999/hcp-consensus/engine/core"
 )
 
+// appOptions 实现 Cosmos SDK 的 AppOptions 接口
 type appOptions map[string]any
 
 func (o appOptions) Get(key string) any {
 	return o[key]
 }
 
+// Executor 是 Cosmos SDK 执行适配器，将共识区块提交到 SDK 应用。
 type Executor struct {
 	mu sync.Mutex
 
@@ -48,6 +50,7 @@ type Executor struct {
 	lastAppHash     []byte
 }
 
+// New 创建 SDK 执行器实例
 func New(nodeID, homeDir, chainID string) (*Executor, error) {
 	initSDKConfig()
 	if chainID == "" {
@@ -89,6 +92,7 @@ func New(nodeID, homeDir, chainID string) (*Executor, error) {
 	return exec, nil
 }
 
+// ExecuteBlock 执行区块：调用 SDK 的 FinalizeBlock 和 Commit
 func (e *Executor) ExecuteBlock(block *core.Block) error {
 	if block == nil {
 		return nil
@@ -142,12 +146,14 @@ func (e *Executor) ExecuteBlock(block *core.Block) error {
 	return e.writeBlockData(block, txIDs, finalizeResp, commitResp)
 }
 
+// GetStateHash 获取当前状态哈希
 func (e *Executor) GetStateHash() string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.stateHash
 }
 
+// Close 关闭数据库连接
 func (e *Executor) Close() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -157,6 +163,7 @@ func (e *Executor) Close() error {
 	return nil
 }
 
+// initChain 初始化链：设置创世状态并注入负载生成账户
 func (e *Executor) initChain() error {
 	if e.initialized {
 		return nil
@@ -195,6 +202,7 @@ func (e *Executor) initChain() error {
 	return nil
 }
 
+// injectLoadgenAccounts 向创世状态注入负载生成器账户
 func (e *Executor) injectLoadgenAccounts(genesisState map[string]json.RawMessage) error {
 	addresses, err := readAccountFile(os.Getenv("HCP_ENGINE_SDK_ACCOUNT_FILE"))
 	if err != nil {
@@ -256,6 +264,7 @@ func (e *Executor) injectLoadgenAccounts(genesisState map[string]json.RawMessage
 	return nil
 }
 
+// seedLoadgenAccounts 在链初始化后播种账户余额
 func (e *Executor) seedLoadgenAccounts() error {
 	addresses, err := readAccountFile(os.Getenv("HCP_ENGINE_SDK_ACCOUNT_FILE"))
 	if err != nil {
@@ -314,10 +323,12 @@ func (e *Executor) seedLoadgenAccounts() error {
 	return nil
 }
 
+// accountFileRecord 账户文件记录结构
 type accountFileRecord struct {
 	Address string `json:"address"`
 }
 
+// readAccountFile 读取账户文件
 func readAccountFile(path string) ([]string, error) {
 	if path == "" {
 		return nil, nil
@@ -349,6 +360,7 @@ func readAccountFile(path string) ([]string, error) {
 	return addresses, nil
 }
 
+// writeBlockData 写入区块数据和交易结果
 func (e *Executor) writeBlockData(block *core.Block, txIDs []string, finalizeResp *abci.ResponseFinalizeBlock, commitResp *abci.ResponseCommit) error {
 	if err := os.MkdirAll(filepath.Join(e.homeDir, "blocks"), 0755); err != nil {
 		return err
@@ -396,6 +408,7 @@ func (e *Executor) writeBlockData(block *core.Block, txIDs []string, finalizeRes
 	return e.writeLatest(block.Height, finalizeResp.AppHash, len(block.Txs), len(finalizeResp.TxResults))
 }
 
+// writeLatest 写入最新状态摘要
 func (e *Executor) writeLatest(height uint64, appHash []byte, txCount int, resultCount int) error {
 	stateDir := filepath.Join(e.homeDir, "state")
 	if err := os.MkdirAll(stateDir, 0755); err != nil {
@@ -418,6 +431,7 @@ func (e *Executor) writeLatest(height uint64, appHash []byte, txCount int, resul
 	})
 }
 
+// writeError 写入错误信息到文件
 func (e *Executor) writeError(block *core.Block, phase string, err error) error {
 	return writeJSON(filepath.Join(e.homeDir, "last_error.json"), map[string]any{
 		"node_id": e.nodeID,
@@ -428,6 +442,7 @@ func (e *Executor) writeError(block *core.Block, phase string, err error) error 
 	})
 }
 
+// writeJSON 将数据以 JSON 格式写入文件
 func writeJSON(path string, value any) error {
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
@@ -442,6 +457,7 @@ var _ = storetypes.StoreTypeIAVL
 
 var configOnce sync.Once
 
+// initSDKConfig 初始化 SDK 配置（Bech32 前缀等）
 func initSDKConfig() {
 	configOnce.Do(func() {
 		defer func() { _ = recover() }()

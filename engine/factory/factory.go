@@ -11,17 +11,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fffeng99999/hcp-consensus/engine/cometbft"
-	cometbftlight "github.com/fffeng99999/hcp-consensus/engine/cometbft_light"
 	"github.com/fffeng99999/hcp-consensus/engine/common"
+	"github.com/fffeng99999/hcp-consensus/engine/consensus/cometbft"
+	cometbftlight "github.com/fffeng99999/hcp-consensus/engine/consensus/cometbft_light"
+	"github.com/fffeng99999/hcp-consensus/engine/consensus/hierarchical"
+	"github.com/fffeng99999/hcp-consensus/engine/consensus/hotstuff"
+	"github.com/fffeng99999/hcp-consensus/engine/consensus/pbft"
+	"github.com/fffeng99999/hcp-consensus/engine/consensus/raft"
+	"github.com/fffeng99999/hcp-consensus/engine/consensus/tpbft"
 	"github.com/fffeng99999/hcp-consensus/engine/core"
-	"github.com/fffeng99999/hcp-consensus/engine/hierarchical"
-	"github.com/fffeng99999/hcp-consensus/engine/hotstuff"
 	"github.com/fffeng99999/hcp-consensus/engine/network"
-	"github.com/fffeng99999/hcp-consensus/engine/pbft"
-	"github.com/fffeng99999/hcp-consensus/engine/raft"
 	"github.com/fffeng99999/hcp-consensus/engine/sdkexec"
-	"github.com/fffeng99999/hcp-consensus/engine/tpbft"
 )
 
 // EngineType 引擎类型

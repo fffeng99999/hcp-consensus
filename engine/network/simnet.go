@@ -10,7 +10,7 @@ import (
 	"github.com/fffeng99999/hcp-consensus/engine/core"
 )
 
-// SimNet is an in-memory network with latency, bandwidth, and message metrics.
+// SimNet 是带延迟、带宽和消息统计能力的内存模拟网络。
 type SimNet struct {
 	mu               sync.RWMutex
 	handlers         map[string]func(*core.Message)
@@ -22,6 +22,7 @@ type SimNet struct {
 	onSend           func(msg *core.Message)
 }
 
+// NewSimNet 创建模拟网络实例
 func NewSimNet() *SimNet {
 	return &SimNet{
 		handlers:  make(map[string]func(*core.Message)),
@@ -30,30 +31,35 @@ func NewSimNet() *SimNet {
 	}
 }
 
+// RegisterHandler 注册节点消息处理器
 func (n *SimNet) RegisterHandler(nodeID string, handler func(*core.Message)) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.handlers[nodeID] = handler
 }
 
+// SetLatency 设置网络延迟（毫秒）
 func (n *SimNet) SetLatency(latencyMs float64) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.latencyMs = latencyMs
 }
 
+// SetBandwidth 设置带宽限制（Mbps）
 func (n *SimNet) SetBandwidth(mbps float64) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.bandwidth = mbps
 }
 
+// SetSendHook 设置消息发送钩子函数
 func (n *SimNet) SetSendHook(hook func(msg *core.Message)) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.onSend = hook
 }
 
+// Send 发送点对点消息
 func (n *SimNet) Send(msg *core.Message) error {
 	if msg == nil {
 		return nil
@@ -89,6 +95,7 @@ func (n *SimNet) Send(msg *core.Message) error {
 	return nil
 }
 
+// Broadcast 广播消息到所有节点（除发送者外）
 func (n *SimNet) Broadcast(msg *core.Message) error {
 	if msg == nil {
 		return nil
@@ -132,6 +139,7 @@ func (n *SimNet) Broadcast(msg *core.Message) error {
 	return nil
 }
 
+// GetMetrics 获取网络指标
 func (n *SimNet) GetMetrics() core.NetworkMetrics {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
@@ -143,7 +151,7 @@ func (n *SimNet) GetMetrics() core.NetworkMetrics {
 	}
 }
 
-// Cluster manages all in-memory consensus nodes.
+// Cluster 管理同一内存网络中的全部共识节点。
 type Cluster struct {
 	mu         sync.Mutex
 	Network    *SimNet
@@ -153,6 +161,7 @@ type Cluster struct {
 	nextSubmit uint64
 }
 
+// NewCluster 创建模拟集群
 func NewCluster() *Cluster {
 	return &Cluster{
 		Network: NewSimNet(),
@@ -161,6 +170,7 @@ func NewCluster() *Cluster {
 	}
 }
 
+// AddNode 向集群添加节点
 func (c *Cluster) AddNode(nodeID string, engine core.ConsensusEngine, pool core.TxPool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -168,6 +178,7 @@ func (c *Cluster) AddNode(nodeID string, engine core.ConsensusEngine, pool core.
 	c.TxPools[nodeID] = pool
 }
 
+// StartAll 启动集群中所有节点
 func (c *Cluster) StartAll() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -180,6 +191,7 @@ func (c *Cluster) StartAll() error {
 	return nil
 }
 
+// StopAll 停止集群中所有节点
 func (c *Cluster) StopAll() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -189,6 +201,7 @@ func (c *Cluster) StopAll() {
 	c.Started = false
 }
 
+// SubmitTx 向集群轮询提交交易
 func (c *Cluster) SubmitTx(tx *core.Tx) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -205,6 +218,7 @@ func (c *Cluster) SubmitTx(tx *core.Tx) error {
 	return c.Nodes[nodeID].SubmitTx(tx)
 }
 
+// GetAllStatus 获取所有节点状态
 func (c *Cluster) GetAllStatus() map[string]core.EngineStatus {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -215,6 +229,7 @@ func (c *Cluster) GetAllStatus() map[string]core.EngineStatus {
 	return status
 }
 
+// WaitForHeight 等待所有节点达到指定区块高度
 func (c *Cluster) WaitForHeight(target uint64, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
