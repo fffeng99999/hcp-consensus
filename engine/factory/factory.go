@@ -4,7 +4,6 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/fffeng99999/hcp-consensus/engine/common"
 	"github.com/fffeng99999/hcp-consensus/engine/consensus/cometbft"
-	cometbftlight "github.com/fffeng99999/hcp-consensus/engine/consensus/cometbft_light"
 	"github.com/fffeng99999/hcp-consensus/engine/consensus/hierarchical"
 	"github.com/fffeng99999/hcp-consensus/engine/consensus/hotstuff"
 	"github.com/fffeng99999/hcp-consensus/engine/consensus/pbft"
@@ -24,7 +22,7 @@ import (
 	"github.com/fffeng99999/hcp-consensus/engine/sdkexec"
 )
 
-// EngineType 引擎类型
+// EngineType 是实验层传入的共识算法名称。
 type EngineType string
 
 const (
@@ -39,21 +37,19 @@ const (
 	EngineTPBFTParallel           EngineType = "tpbft_parallel"
 )
 
-// CreateEngine 创建共识引擎实例
+// CreateEngine 只负责按名称创建算法实例，不给算法注入固定收益参数。
 func CreateEngine(et EngineType) (core.ConsensusEngine, error) {
 	switch et {
 	case EnginePBFT:
 		return pbft.NewPBFT(), nil
 	case EngineTPBFT:
-		return tpbft.NewTPBFT(0.6, 100), nil
+		return tpbft.NewTPBFT(), nil
 	case EngineHotStuff:
 		return hotstuff.NewHotStuff(), nil
 	case EngineRaft:
 		return raft.NewRaft(), nil
-	case EngineCometBFT:
+	case EngineCometBFT, EngineCometBFTLight, EngineType("cometBFT-light"), EngineType("cometbft_light"):
 		return cometbft.NewCometBFT(), nil
-	case EngineCometBFTLight, EngineType("cometBFT-light"), EngineType("cometbft_light"):
-		return cometbftlight.NewCometBFTLight(), nil
 	case EngineHierarchicalTPBFT:
 		return hierarchical.NewHierarchicalTPBFT(4, "pbft", 0.6), nil
 	case EngineHierarchicalLightweight:
@@ -63,7 +59,7 @@ func CreateEngine(et EngineType) (core.ConsensusEngine, error) {
 	}
 }
 
-// CreateEngineWithGroup 创建带分组参数的分层共识引擎
+// CreateEngineWithGroup 创建需要分组参数的分层共识引擎。
 func CreateEngineWithGroup(et EngineType, groupCount int, innerType string) (core.ConsensusEngine, error) {
 	switch et {
 	case EngineHierarchicalTPBFT:
@@ -78,7 +74,6 @@ func CreateEngineWithGroup(et EngineType, groupCount int, innerType string) (cor
 	}
 }
 
-// BuildClusterWithGroup 构建带分组参数的模拟集群
 func createExecutor(nodeID string) core.Executor {
 	if !sdkExecutorEnabled() {
 		return common.NewSimpleExecutor()
@@ -102,13 +97,22 @@ func sdkExecutorEnabled() bool {
 	return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
 }
 
+// BuildClusterWithGroup 构建带分组参数的模拟集群。
 func BuildClusterWithGroup(et EngineType, nodeCount int, groupCount int, innerType string, latencyMs, bandwidth float64) (*network.Cluster, error) {
+	return buildCluster(et, nodeCount, groupCount, innerType, latencyMs, bandwidth)
+}
+
+// BuildCluster 构建普通模拟集群。
+func BuildCluster(et EngineType, nodeCount int, latencyMs, bandwidth float64) (*network.Cluster, error) {
+	return buildCluster(et, nodeCount, 0, "", latencyMs, bandwidth)
+}
+
+func buildCluster(et EngineType, nodeCount int, groupCount int, innerType string, latencyMs, bandwidth float64) (*network.Cluster, error) {
 	cluster := network.NewCluster()
 	simNet := cluster.Network
 	simNet.SetLatency(latencyMs)
 	simNet.SetBandwidth(bandwidth)
 
-	// 生成节点密钥
 	pubKeys := make(map[string]ed25519.PublicKey)
 	privKeys := make(map[string]ed25519.PrivateKey)
 	nodeIDs := make([]string, nodeCount)
@@ -132,89 +136,59 @@ func BuildClusterWithGroup(et EngineType, nodeCount int, groupCount int, innerTy
 			PublicKeys: pubKeys,
 		}
 
-		var engine core.ConsensusEngine
-		var err error
-		if et == EngineHierarchicalTPBFT || et == EngineHierarchicalLightweight {
-			engine, err = CreateEngineWithGroup(et, groupCount, innerType)
-		} else {
-			engine, err = CreateEngine(et)
-		}
+		engine, err := createEngineForCluster(et, groupCount, innerType)
 		if err != nil {
 			return nil, err
 		}
-
 		pool := common.NewMemTxPool(100000)
 		exec := createExecutor(nodeID)
-
-		// 为不同算法配置特殊参数
-		switch e := engine.(type) {
-		case *tpbft.TPBFT:
-			e.Init(cfg, simNet, pool, exec)
-			base := e.GetPBFT()
-			selectedCount := int(math.Max(4, float64(nodeCount)*0.7))
-			if selectedCount > nodeCount {
-				selectedCount = nodeCount
-			}
-			selected := nodeIDs[:selectedCount]
-			base.ValidatorSelector = func() []string { return selected }
-			base.BroadcastTargets = func() []string { return selected }
-			base.OnCommit = func(block *core.Block) {
-				for _, node := range nodeIDs {
-					e.RecordTrustRound(node, true, 50.0, 1.0)
-				}
-			}
-			// tPBFT的签名验证延迟基于选中节点数
-			c := len(selected)
-			base.ExtraLatencyMs = (float64(c*(c-1)*2) * 0.18) / 4.0
-		case *pbft.PBFT:
-			e.Init(cfg, simNet, pool, exec)
-			e.ExtraLatencyMs = (float64(nodeCount*(nodeCount-1)*2) * 0.18) / 4.0
-			e.BroadcastTargets = func() []string { return nodeIDs }
-			e.ValidatorSelector = func() []string { return nodeIDs }
-		case *cometbft.CometBFT:
-			e.Init(cfg, simNet, pool, exec)
-		case *cometbftlight.CometBFTLight:
-			e.Init(cfg, simNet, pool, exec)
-		case *hotstuff.HotStuff:
-			e.Init(cfg, simNet, pool, exec)
-			// HotStuff线性复杂度，签名验证少很多（只有leader聚合）
-			e.ExtraLatencyMs = (float64(nodeCount-1) * 0.18) / 4.0 * 3 // 三阶段各需验证N-1个签名
-		case *raft.Raft:
-			e.Init(cfg, simNet, pool, exec)
-			// Raft只有leader广播日志，验证开销小
-			e.ExtraLatencyMs = (float64(nodeCount-1) * 0.18) / 4.0
-		case *hierarchical.HierarchicalTPBFT:
-			e.Init(cfg, simNet, pool, exec)
-		default:
-			engine.Init(cfg, simNet, pool, exec)
+		if err := engine.Init(cfg, simNet, pool, exec); err != nil {
+			return nil, err
 		}
-
 		cluster.AddNode(nodeID, engine, pool)
 	}
-
 	return cluster, nil
 }
 
-// RunBenchmarkWithGroup 运行带分组参数的基准测试
-func RunBenchmarkWithGroup(et EngineType, nodeCount int, groupCount int, innerType string, txCount int, txSize int, latencyMs, bandwidth float64) (*BenchmarkResult, error) {
-	actualLatency := 5.0 // 基础LAN延迟5ms（更接近论文的单机多实例+模拟）
-	if latencyMs > 0 {
-		actualLatency = latencyMs
+func createEngineForCluster(et EngineType, groupCount int, innerType string) (core.ConsensusEngine, error) {
+	if et == EngineHierarchicalTPBFT || et == EngineHierarchicalLightweight {
+		return CreateEngineWithGroup(et, groupCount, innerType)
 	}
-	cluster, err := BuildClusterWithGroup(et, nodeCount, groupCount, innerType, actualLatency, bandwidth)
+	return CreateEngine(et)
+}
+
+// RunBenchmarkWithGroup 运行带分组参数的基准测试。
+func RunBenchmarkWithGroup(et EngineType, nodeCount int, groupCount int, innerType string, txCount int, txSize int, latencyMs, bandwidth float64) (*BenchmarkResult, error) {
+	cluster, err := BuildClusterWithGroup(et, nodeCount, groupCount, innerType, effectiveLatency(latencyMs), bandwidth)
 	if err != nil {
 		return nil, err
 	}
+	return runClusterBenchmark(cluster, et, nodeCount, txCount, txSize)
+}
 
+// RunBenchmark 运行普通基准测试。
+func RunBenchmark(et EngineType, nodeCount int, txCount int, txSize int, latencyMs, bandwidth float64) (*BenchmarkResult, error) {
+	cluster, err := BuildCluster(et, nodeCount, effectiveLatency(latencyMs), bandwidth)
+	if err != nil {
+		return nil, err
+	}
+	return runClusterBenchmark(cluster, et, nodeCount, txCount, txSize)
+}
+
+func effectiveLatency(latencyMs float64) float64 {
+	if latencyMs > 0 {
+		return latencyMs
+	}
+	return 5.0
+}
+
+func runClusterBenchmark(cluster *network.Cluster, et EngineType, nodeCount int, txCount int, txSize int) (*BenchmarkResult, error) {
 	if err := cluster.StartAll(); err != nil {
 		return nil, err
 	}
 	defer cluster.StopAll()
 
-	// 预热
 	time.Sleep(200 * time.Millisecond)
-
-	// 以固定速率发送交易（模拟持续负载）
 	durationSec := 10
 	if txCount <= 200 {
 		durationSec = 5
@@ -226,64 +200,24 @@ func RunBenchmarkWithGroup(et EngineType, nodeCount int, groupCount int, innerTy
 	sent := 0
 	for i := 0; i < txCount; i++ {
 		payload := make([]byte, txSize)
-		rand.Read(payload)
+		_, _ = rand.Read(payload)
 		tx := core.NewTx(payload, fmt.Sprintf("client-%d", i%100), uint64(i))
 		tx.From = "client"
 		tx.SubmitTime = time.Now()
-		cluster.SubmitTx(tx)
+		_ = cluster.SubmitTx(tx)
 		sent++
 		if intervalMs > 0 {
 			time.Sleep(time.Duration(intervalMs * float64(time.Millisecond)))
 		}
 	}
 
-	// 发送完成后，等待所有交易被确认
-	time.Sleep(2 * time.Second)
-	timeout := time.Duration(30) * time.Second
-	if nodeCount >= 32 {
-		timeout = 60 * time.Second
-	}
-
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		allDone := true
-		for _, pool := range cluster.TxPools {
-			if pool.PendingCount() > 0 {
-				allDone = false
-				break
-			}
-		}
-		if allDone {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
+	waitForDrain(cluster, nodeCount)
 	elapsed := time.Since(start).Seconds()
-
-	// 收集指标（优先使用leader节点的延迟数据）
-	statusMap := cluster.GetAllStatus()
-	var sampleStatus core.EngineStatus
-	for _, s := range statusMap {
-		if s.IsLeader {
-			sampleStatus = s
-			break
-		}
-	}
-	// 如果没有leader（理论上不应发生），使用第一个节点
-	if sampleStatus.NodeID == "" {
-		for _, s := range statusMap {
-			sampleStatus = s
-			break
-		}
-	}
-
+	sampleStatus := pickSampleStatus(cluster.GetAllStatus())
 	netMetrics := cluster.Network.GetMetrics()
-
-	// 计算实际TPS（基于完成时间）
 	actualTPS := float64(sent) / elapsed
 	if actualTPS > float64(sent) {
-		actualTPS = float64(sent) // 上限
+		actualTPS = float64(sent)
 	}
 
 	return &BenchmarkResult{
@@ -300,143 +234,12 @@ func RunBenchmarkWithGroup(et EngineType, nodeCount int, groupCount int, innerTy
 	}, nil
 }
 
-// BuildCluster 构建一个完整的模拟集群
-func BuildCluster(et EngineType, nodeCount int, latencyMs, bandwidth float64) (*network.Cluster, error) {
-	cluster := network.NewCluster()
-	simNet := cluster.Network
-	simNet.SetLatency(latencyMs)
-	simNet.SetBandwidth(bandwidth)
-
-	// 生成节点密钥
-	pubKeys := make(map[string]ed25519.PublicKey)
-	privKeys := make(map[string]ed25519.PrivateKey)
-	nodeIDs := make([]string, nodeCount)
-	for i := 0; i < nodeCount; i++ {
-		nodeIDs[i] = fmt.Sprintf("node-%d", i)
-		_, priv, err := ed25519.GenerateKey(rand.Reader)
-		if err != nil {
-			return nil, err
-		}
-		privKeys[nodeIDs[i]] = priv
-		pubKeys[nodeIDs[i]] = priv.Public().(ed25519.PublicKey)
-	}
-
-	for i := 0; i < nodeCount; i++ {
-		nodeID := nodeIDs[i]
-		cfg := &core.NodeConfig{
-			NodeID:     nodeID,
-			Addr:       fmt.Sprintf("127.0.0.1:%d", 10000+i),
-			AllNodes:   nodeIDs,
-			PrivateKey: privKeys[nodeID],
-			PublicKeys: pubKeys,
-		}
-
-		engine, err := CreateEngine(et)
-		if err != nil {
-			return nil, err
-		}
-
-		pool := common.NewMemTxPool(100000)
-		exec := createExecutor(nodeID)
-
-		// 为不同算法配置特殊参数
-		switch e := engine.(type) {
-		case *tpbft.TPBFT:
-			e.Init(cfg, simNet, pool, exec)
-			base := e.GetPBFT()
-			selectedCount := int(math.Max(4, float64(nodeCount)*0.7))
-			if selectedCount > nodeCount {
-				selectedCount = nodeCount
-			}
-			selected := nodeIDs[:selectedCount]
-			base.ValidatorSelector = func() []string { return selected }
-			base.BroadcastTargets = func() []string { return selected }
-			base.OnCommit = func(block *core.Block) {
-				for _, node := range nodeIDs {
-					e.RecordTrustRound(node, true, 50.0, 1.0)
-				}
-			}
-			// tPBFT的签名验证延迟基于选中节点数
-			c := len(selected)
-			base.ExtraLatencyMs = (float64(c*(c-1)*2) * 0.18) / 4.0
-		case *pbft.PBFT:
-			e.Init(cfg, simNet, pool, exec)
-			e.ExtraLatencyMs = (float64(nodeCount*(nodeCount-1)*2) * 0.18) / 4.0
-			e.BroadcastTargets = func() []string { return nodeIDs }
-			e.ValidatorSelector = func() []string { return nodeIDs }
-		case *cometbft.CometBFT:
-			e.Init(cfg, simNet, pool, exec)
-		case *cometbftlight.CometBFTLight:
-			e.Init(cfg, simNet, pool, exec)
-		case *hotstuff.HotStuff:
-			e.Init(cfg, simNet, pool, exec)
-			// HotStuff线性复杂度，签名验证少很多（只有leader聚合）
-			e.ExtraLatencyMs = (float64(nodeCount-1) * 0.18) / 4.0 * 3 // 三阶段各需验证N-1个签名
-		case *raft.Raft:
-			e.Init(cfg, simNet, pool, exec)
-			// Raft只有leader广播日志，验证开销小
-			e.ExtraLatencyMs = (float64(nodeCount-1) * 0.18) / 4.0
-		case *hierarchical.HierarchicalTPBFT:
-			e.Init(cfg, simNet, pool, exec)
-		default:
-			engine.Init(cfg, simNet, pool, exec)
-		}
-
-		cluster.AddNode(nodeID, engine, pool)
-	}
-
-	return cluster, nil
-}
-
-// RunBenchmark 运行基准测试（持续负载模式）
-func RunBenchmark(et EngineType, nodeCount int, txCount int, txSize int, latencyMs, bandwidth float64) (*BenchmarkResult, error) {
-	actualLatency := 5.0 // 基础LAN延迟5ms（更接近论文的单机多实例+模拟）
-	if latencyMs > 0 {
-		actualLatency = latencyMs
-	}
-	cluster, err := BuildCluster(et, nodeCount, actualLatency, bandwidth)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := cluster.StartAll(); err != nil {
-		return nil, err
-	}
-	defer cluster.StopAll()
-
-	// 预热
-	time.Sleep(200 * time.Millisecond)
-
-	// 以固定速率发送交易（模拟持续负载）
-	durationSec := 10
-	if txCount <= 200 {
-		durationSec = 5
-	}
-	targetTPS := float64(txCount) / float64(durationSec)
-	intervalMs := 1000.0 / targetTPS
-
-	start := time.Now()
-	sent := 0
-	for i := 0; i < txCount; i++ {
-		payload := make([]byte, txSize)
-		rand.Read(payload)
-		tx := core.NewTx(payload, fmt.Sprintf("client-%d", i%100), uint64(i))
-		tx.From = "client"
-		tx.SubmitTime = time.Now()
-		cluster.SubmitTx(tx)
-		sent++
-		if intervalMs > 0 {
-			time.Sleep(time.Duration(intervalMs * float64(time.Millisecond)))
-		}
-	}
-
-	// 发送完成后，等待所有交易被确认
+func waitForDrain(cluster *network.Cluster, nodeCount int) {
 	time.Sleep(2 * time.Second)
-	timeout := time.Duration(30) * time.Second
+	timeout := 30 * time.Second
 	if nodeCount >= 32 {
 		timeout = 60 * time.Second
 	}
-
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		allDone := true
@@ -447,55 +250,25 @@ func RunBenchmark(et EngineType, nodeCount int, txCount int, txSize int, latency
 			}
 		}
 		if allDone {
-			break
+			return
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-
-	elapsed := time.Since(start).Seconds()
-
-	// 收集指标（优先使用leader节点的延迟数据）
-	statusMap := cluster.GetAllStatus()
-	var sampleStatus core.EngineStatus
-	for _, s := range statusMap {
-		if s.IsLeader {
-			sampleStatus = s
-			break
-		}
-	}
-	// 如果没有leader（理论上不应发生），使用第一个节点
-	if sampleStatus.NodeID == "" {
-		for _, s := range statusMap {
-			sampleStatus = s
-			break
-		}
-	}
-
-	netMetrics := cluster.Network.GetMetrics()
-
-	// 计算实际TPS（基于完成时间）
-	actualTPS := float64(sent) / elapsed
-	if actualTPS > float64(sent) {
-		actualTPS = float64(sent) // 上限
-	}
-
-	result := &BenchmarkResult{
-		EngineType:    string(et),
-		NodeCount:     nodeCount,
-		TxCount:       sent,
-		DurationSec:   elapsed,
-		TPS:           actualTPS,
-		P50LatencyMs:  sampleStatus.P50LatencyMs,
-		P95LatencyMs:  sampleStatus.P95LatencyMs,
-		P99LatencyMs:  sampleStatus.P99LatencyMs,
-		TotalMessages: netMetrics.TotalMessages,
-		TotalBytes:    netMetrics.TotalBytes,
-	}
-
-	return result, nil
 }
 
-// BenchmarkResult 基准测试结果
+func pickSampleStatus(statusMap map[string]core.EngineStatus) core.EngineStatus {
+	for _, s := range statusMap {
+		if s.IsLeader {
+			return s
+		}
+	}
+	for _, s := range statusMap {
+		return s
+	}
+	return core.EngineStatus{}
+}
+
+// BenchmarkResult 是一次 benchmark 的结果摘要。
 type BenchmarkResult struct {
 	EngineType    string
 	NodeCount     int
@@ -509,12 +282,11 @@ type BenchmarkResult struct {
 	TotalBytes    uint64
 }
 
-// RunAblation 运行消融实验
+// RunAblation 运行消融实验。
 func RunAblation(nodeCount int, txCount int) map[string]*BenchmarkResult {
 	results := make(map[string]*BenchmarkResult)
 	mu := sync.Mutex{}
 	var wg sync.WaitGroup
-
 	configs := []struct {
 		name string
 		et   EngineType
@@ -526,7 +298,6 @@ func RunAblation(nodeCount int, txCount int) map[string]*BenchmarkResult {
 		{"E_HotStuff", EngineHotStuff},
 		{"F_Raft", EngineRaft},
 	}
-
 	for _, cfg := range configs {
 		wg.Add(1)
 		go func(name string, et EngineType) {
@@ -541,7 +312,6 @@ func RunAblation(nodeCount int, txCount int) map[string]*BenchmarkResult {
 			mu.Unlock()
 		}(cfg.name, cfg.et)
 	}
-
 	wg.Wait()
 	return results
 }

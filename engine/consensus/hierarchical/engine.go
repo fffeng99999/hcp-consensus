@@ -2,7 +2,6 @@ package hierarchical
 
 import (
 	"fmt"
-	"math"
 	"sync"
 	"time"
 
@@ -108,19 +107,8 @@ func (h *HierarchicalTPBFT) Init(cfg *core.NodeConfig, network core.Network, txP
 		h.innerEngine = raft.NewRaft()
 		// 为 Raft 配置简化：第一个节点总是 leader
 	} else {
-		inner := pbft.NewPBFT()
-		// 配置信任评分和广播目标
-		selectedCount := int(math.Max(2, float64(len(h.groupPeers))*0.8))
-		if selectedCount > len(h.groupPeers) {
-			selectedCount = len(h.groupPeers)
-		}
-		selected := h.groupPeers[:selectedCount]
-		inner.ValidatorSelector = func() []string { return selected }
-		inner.BroadcastTargets = func() []string { return selected }
-		// 签名验证延迟基于选中节点数
-		c := len(selected)
-		inner.ExtraLatencyMs = (float64(c*(c-1)*2) * 0.18) / 4.0
-		h.innerEngine = inner
+		// 由 PBFT 自身完整流程决定投票和提交。
+		h.innerEngine = pbft.NewPBFT()
 	}
 
 	innerPool := common.NewMemTxPool(100000)
