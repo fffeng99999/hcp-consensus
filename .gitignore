@@ -23,6 +23,7 @@ Thumbs.db
 
 # Go
 vendor/
+.gocache/
 *.test
 *.out
 go.work

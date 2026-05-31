@@ -2,12 +2,18 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math"
+	"math/big"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,22 +25,22 @@ import (
 
 	"github.com/fffeng99999/hcp-consensus/engine/core"
 	"github.com/fffeng99999/hcp-consensus/engine/factory"
+	"github.com/quic-go/quic-go"
 )
 
-// main 是 hcp-bench 命令行工具的入口，支持多种基准测试子命令。
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: hcp-bench <command> [args]")
 		fmt.Println("Commands:")
-		fmt.Println("  benchmark <engine> <nodes> <txs> [outfile]          运行单一基准测试")
-		fmt.Println("  benchmark-group <engine> <nodes> <groups> <txs>     带分组的benchmark")
-		fmt.Println("  compare <nodes> <txs> [outdir]                      运行多算法对比实验")
-		fmt.Println("  ablation <nodes> <txs> [repeat] [outdir]            运行消融实验")
-		fmt.Println("  saturation <engine> <nodes> [outdir]                运行饱和点扫描")
-		fmt.Println("  group-scan <nodes> <txs> [outdir]                   运行分组参数扫描")
-		fmt.Println("  model-fit <data-json> [outfile]                     拟合尾延迟模型")
-		fmt.Println("  serve <engine> <nodes> <listen> [groups]            启动本地 engine 集群 HTTP 负载入口")
-		fmt.Println("  smoke [outfile]                                      验证实验所需 engine 的最小可运行性")
+		fmt.Println("  benchmark <engine> <nodes> <txs> [outfile]          杩愯鍗曚竴鍩哄噯娴嬭瘯")
+		fmt.Println("  benchmark-group <engine> <nodes> <groups> <txs>     甯﹀垎缁勭殑benchmark")
+		fmt.Println("  compare <nodes> <txs> [outdir]                      run multi-engine comparison")
+		fmt.Println("  ablation <nodes> <txs> [repeat] [outdir]            杩愯娑堣瀺瀹為獙")
+		fmt.Println("  saturation <engine> <nodes> [outdir]                run saturation scan")
+		fmt.Println("  group-scan <nodes> <txs> [outdir]                   杩愯鍒嗙粍鍙傛暟鎵弿")
+		fmt.Println("  model-fit <data-json> [outfile]                     fit latency model")
+		fmt.Println("  serve <engine> <nodes> <listen> [groups]            鍚姩鏈湴 engine 闆嗙兢 HTTP 璐熻浇鍏ュ彛")
+		fmt.Println("  smoke [outfile]                                      run engine smoke tests")
 		fmt.Println("Engines: pbft, tpbft, hotstuff, raft, cometbft-light, cometbft, hierarchical_tpbft, hierarchical_lightweight_tpbft")
 		os.Exit(1)
 	}
@@ -65,7 +71,6 @@ func main() {
 	}
 }
 
-// smokeResult 记录单次 smoke 测试的结果，用于汇总输出。
 type smokeResult struct {
 	Name   string                   `json:"name"`
 	Engine string                   `json:"engine"`
@@ -77,14 +82,11 @@ type smokeResult struct {
 	Result *factory.BenchmarkResult `json:"result,omitempty"`
 }
 
-// runSmoke 对所有支持的共识引擎执行最小可运行性验证（smoke test）。
-// 若任一引擎未通过，则进程以非零状态退出。
 func runSmoke() {
 	outfile := ""
 	if len(os.Args) >= 3 {
 		outfile = os.Args[2]
 	}
-	// 定义各引擎的 smoke 测试用例，覆盖普通与分组场景。
 	cases := []struct {
 		name   string
 		engine factory.EngineType
@@ -109,7 +111,6 @@ func runSmoke() {
 		var res *factory.BenchmarkResult
 		var err error
 		if tc.groups > 0 {
-			// 分组场景需指定子引擎类型，轻量级层次化默认使用 raft。
 			innerType := ""
 			if tc.engine == factory.EngineHierarchicalLightweight {
 				innerType = "raft"
@@ -126,7 +127,6 @@ func runSmoke() {
 			Groups: tc.groups,
 			Result: res,
 		}
-		// 校验结果：无错误、交易数匹配、有网络消息、时长与 TPS 为正。
 		if err != nil {
 			item.Error = err.Error()
 		} else if res == nil {
@@ -161,8 +161,6 @@ func runSmoke() {
 	}
 }
 
-// runServe 启动一个 HTTP 服务，将外部交易请求转发到本地共识引擎集群。
-// 提供 /health、/tx、/status 三个端点，支持优雅关闭。
 func runServe() {
 	if len(os.Args) < 5 {
 		fmt.Println("Usage: hcp-bench serve <engine> <nodes> <listen> [groups]")
@@ -177,7 +175,6 @@ func runServe() {
 		groups, _ = strconv.Atoi(os.Args[5])
 	}
 
-	// cluster 抽象统一了普通集群与分组集群的公共操作。
 	var cluster interface {
 		StartAll() error
 		StopAll()
@@ -214,12 +211,22 @@ func runServe() {
 	var received uint64
 	var accepted uint64
 	startedAt := time.Now()
+	submitPayload := func(body []byte, remoteAddr string) (string, uint64, error) {
+		now := time.Now()
+		seq := atomic.AddUint64(&received, 1)
+		tx := core.NewTx(body, clientID(remoteAddr), seq)
+		tx.SubmitTime = now
+		if err := cluster.SubmitTx(tx); err != nil {
+			return "", 0, err
+		}
+		acceptedSeq := atomic.AddUint64(&accepted, 1)
+		return tx.ID, acceptedSeq, nil
+	}
+
 	mux := http.NewServeMux()
-	// /health 健康检查端点。
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": true})
 	})
-	// /tx 接收 POST 请求体作为交易内容，构造 Tx 并提交到集群。
 	mux.HandleFunc("/tx", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -230,22 +237,16 @@ func runServe() {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		now := time.Now()
-		seq := atomic.AddUint64(&received, 1)
-		tx := core.NewTx(body, clientID(r.RemoteAddr), seq)
-		tx.SubmitTime = now
-		if err := cluster.SubmitTx(tx); err != nil {
+		txID, acceptedSeq, err := submitPayload(body, r.RemoteAddr)
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
-		acceptedSeq := atomic.AddUint64(&accepted, 1)
-		writeJSON(w, map[string]any{"ok": true, "tx_id": tx.ID, "seq": acceptedSeq})
+		writeJSON(w, map[string]any{"ok": true, "tx_id": txID, "seq": acceptedSeq})
 	})
-	// /status 返回集群状态、网络指标及基于 Leader 统计的 TPS 估算。
 	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 		status := cluster.GetAllStatus()
 		var sample core.EngineStatus
-		// 优先选取 Leader 节点状态作为样本。
 		for _, s := range status {
 			if s.IsLeader {
 				sample = s
@@ -258,7 +259,6 @@ func runServe() {
 				break
 			}
 		}
-		// 分组模式下汇总所有 Leader 的指标，取最大值或累加值。
 		if groups > 0 {
 			var committed uint64
 			var pending int
@@ -308,7 +308,6 @@ func runServe() {
 		completedNano := sample.LastCommitUnixNano
 		completionDuration := 0.0
 		benchmarkTPS := 0.0
-		// 基于首次提交与最后提交时间差计算实际 TPS。
 		if committedTxs > 0 && firstNano > 0 && completedNano > firstNano {
 			completionDuration = float64(completedNano-firstNano) / float64(time.Second)
 			benchmarkTPS = float64(committedTxs) / completionDuration
@@ -332,6 +331,7 @@ func runServe() {
 	server := &http.Server{Addr: listen, Handler: mux}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	go serveQUIC(ctx, listen, submitPayload)
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -339,14 +339,92 @@ func runServe() {
 		_ = server.Shutdown(shutdownCtx)
 	}()
 
-	fmt.Printf("hcp-bench serve: engine=%s nodes=%d groups=%d listen=%s\n", engine, nodes, groups, listen)
+	fmt.Printf("hcp-bench serve: engine=%s nodes=%d groups=%d listen=%s quic=%s\n", engine, nodes, groups, listen, listen)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		fmt.Printf("http server failed: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-// clientID 根据远程地址生成一个稳定的负载生成器标识符。
+func serveQUIC(ctx context.Context, listen string, submit func([]byte, string) (string, uint64, error)) {
+	listener, err := quic.ListenAddr(listen, generateQUICServerTLSConfig(), &quic.Config{})
+	if err != nil {
+		fmt.Printf("quic server disabled: %v\n", err)
+		return
+	}
+	go func() {
+		<-ctx.Done()
+		_ = listener.Close()
+	}()
+	fmt.Printf("hcp-bench quic tx listener: %s\n", listen)
+	for {
+		conn, err := listener.Accept(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			fmt.Printf("quic accept failed: %v\n", err)
+			continue
+		}
+		go handleQUICConnection(ctx, conn, submit)
+	}
+}
+
+func handleQUICConnection(ctx context.Context, conn quic.Connection, submit func([]byte, string) (string, uint64, error)) {
+	for {
+		stream, err := conn.AcceptStream(ctx)
+		if err != nil {
+			return
+		}
+		go handleQUICStream(stream, conn.RemoteAddr().String(), submit)
+	}
+}
+
+func handleQUICStream(stream quic.Stream, remoteAddr string, submit func([]byte, string) (string, uint64, error)) {
+	defer stream.Close()
+	body, err := io.ReadAll(io.LimitReader(stream, 4<<20))
+	if err != nil {
+		_, _ = stream.Write([]byte("ERR read payload\n"))
+		return
+	}
+	txID, seq, err := submit(body, remoteAddr)
+	if err != nil {
+		_, _ = stream.Write([]byte("ERR " + err.Error() + "\n"))
+		return
+	}
+	_, _ = stream.Write([]byte(fmt.Sprintf("OK %s %d\n", txID, seq)))
+}
+
+func generateQUICServerTLSConfig() *tls.Config {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		panic(err)
+	}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()),
+		Subject: pkix.Name{
+			CommonName: "hcp-bench",
+		},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{"hcp-bench", "localhost"},
+	}
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		panic(err)
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{{
+			Certificate: [][]byte{derBytes},
+			PrivateKey:  key,
+		}},
+		NextProtos: []string{"hcp-quic"},
+	}
+}
+
 func clientID(remoteAddr string) string {
 	remoteAddr = strings.TrimSpace(remoteAddr)
 	if remoteAddr == "" {
@@ -356,13 +434,11 @@ func clientID(remoteAddr string) string {
 	return "loadgen-" + hex.EncodeToString(sum[:4])
 }
 
-// writeJSON 将 v 编码为 JSON 并写入响应，同时设置 Content-Type 头。
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// runBenchmark 执行单一引擎的基准测试，参数从命令行读取，结果可选输出到文件。
 func runBenchmark() {
 	if len(os.Args) < 5 {
 		fmt.Println("Usage: hcp-bench benchmark <engine> <nodes> <txs> [outfile]")
@@ -386,7 +462,6 @@ func runBenchmark() {
 	}
 }
 
-// runBenchmarkGroup 执行带分组参数的基准测试，适用于层次化共识引擎。
 func runBenchmarkGroup() {
 	if len(os.Args) < 6 {
 		fmt.Println("Usage: hcp-bench benchmark-group <engine> <nodes> <groups> <txs> [outfile]")
@@ -400,7 +475,6 @@ func runBenchmarkGroup() {
 	if len(os.Args) >= 7 {
 		outfile = os.Args[6]
 	}
-	// 轻量级层次化引擎默认使用 raft 作为子共识。
 	innerType := "pbft"
 	if engine == factory.EngineHierarchicalLightweight {
 		innerType = "raft"
@@ -416,7 +490,6 @@ func runBenchmarkGroup() {
 	}
 }
 
-// runCompare 运行多算法对比实验，默认 16 节点 1000 交易，结果保存为 JSON。
 func runCompare() {
 	nodes, txs := 16, 1000
 	outdir := ""
@@ -464,7 +537,6 @@ func runCompare() {
 	fmt.Printf("Saved to %s\n", filename)
 }
 
-// runAblation 运行消融实验，对多种配置重复执行基准测试并输出平均值汇总。
 func runAblation() {
 	nodes, txs, repeat := 32, 1000, 5
 	outdir := ""
@@ -536,7 +608,6 @@ func runAblation() {
 	fmt.Printf("Saved to %s\n", filename)
 }
 
-// avgResults 计算多次基准测试结果的平均值，返回包含 TPS、延迟、消息数等指标的 map。
 func avgResults(runs []*factory.BenchmarkResult) map[string]float64 {
 	var tps, p50, p95, p99, msgs, dur float64
 	n := float64(len(runs))
@@ -558,7 +629,6 @@ func avgResults(runs []*factory.BenchmarkResult) map[string]float64 {
 	}
 }
 
-// runSaturation 对指定引擎执行负载递增的饱和点扫描实验。
 func runSaturation() {
 	engine := factory.EnginePBFT
 	nodes := 16
@@ -574,7 +644,6 @@ func runSaturation() {
 	}
 
 	results := make(map[int]*factory.BenchmarkResult)
-	// 负载从 20 tx/s 递增到 120 tx/s，步长 20。
 	for load := 20; load <= 120; load += 20 {
 		txCount := load * 10
 		fmt.Printf("  Testing load=%d tx/s (txCount=%d)...\n", load, txCount)
@@ -595,7 +664,6 @@ func runSaturation() {
 	fmt.Printf("Saved to %s\n", filename)
 }
 
-// runGroupScan 扫描不同分组数量对层次化 tPBFT 性能的影响。
 func runGroupScan() {
 	nodes, txs := 32, 1000
 	outdir := ""
@@ -610,7 +678,6 @@ func runGroupScan() {
 	}
 
 	results := make(map[int]*factory.BenchmarkResult)
-	// 遍历常见分组数，跳过不能整除节点数的分组。
 	for _, g := range []int{1, 2, 4, 8, 16} {
 		if nodes%g != 0 {
 			continue
@@ -633,7 +700,6 @@ func runGroupScan() {
 	fmt.Printf("Saved to %s\n", filename)
 }
 
-// runModelFit 读取按节点数组织的基准测试结果，对每个引擎的 P99 延迟进行二次多项式拟合。
 func runModelFit() {
 	if len(os.Args) < 3 {
 		fmt.Println("Usage: hcp-bench model-fit <data-json> [outfile]")
@@ -651,7 +717,6 @@ func runModelFit() {
 	fit := make(map[string]map[string]float64)
 	for engine := range byNode[8] {
 		var xs, ys []float64
-		// 节点数从 8 到 32，步长 8，收集 P99 延迟数据。
 		for n := 8; n <= 32; n += 8 {
 			if byNode[n] == nil || byNode[n][engine] == nil {
 				continue
@@ -673,7 +738,6 @@ func runModelFit() {
 	fmt.Printf("Saved model fit to %s\n", outfile)
 }
 
-// poly2Fit 对给定的 (x, y) 数据点进行二次多项式拟合 y = alpha*x^2 + beta*x + gamma，并返回 R^2。
 func poly2Fit(x, y []float64) (alpha, beta, gamma, r2 float64) {
 	n := float64(len(x))
 	var sx, sx2, sx3, sx4, sy, sxy, sx2y float64
@@ -686,7 +750,6 @@ func poly2Fit(x, y []float64) (alpha, beta, gamma, r2 float64) {
 		sxy += x[i] * y[i]
 		sx2y += x[i] * x[i] * y[i]
 	}
-	// 恰好 3 个点时直接解线性方程组；否则退化为常数均值。
 	if len(x) == 3 {
 		A := [3][3]float64{{x[0] * x[0], x[0], 1}, {x[1] * x[1], x[1], 1}, {x[2] * x[2], x[2], 1}}
 		B := [3]float64{y[0], y[1], y[2]}
@@ -709,7 +772,6 @@ func poly2Fit(x, y []float64) (alpha, beta, gamma, r2 float64) {
 	return
 }
 
-// solve3x3 使用克莱姆法则求解 3x3 线性方程组 A*x = B。
 func solve3x3(A [3][3]float64, B [3]float64) (x, y, z float64) {
 	det := A[0][0]*(A[1][1]*A[2][2]-A[1][2]*A[2][1]) -
 		A[0][1]*(A[1][0]*A[2][2]-A[1][2]*A[2][0]) +
@@ -729,14 +791,12 @@ func solve3x3(A [3][3]float64, B [3]float64) (x, y, z float64) {
 	return detX / det, detY / det, detZ / det
 }
 
-// printResult 在控制台打印 BenchmarkResult 的核心指标。
 func printResult(res *factory.BenchmarkResult) {
 	fmt.Printf("  Engine: %s | Nodes: %d | TPS: %.2f | P50: %.2fms | P95: %.2fms | P99: %.2fms | Msgs: %d | Bytes: %d\n",
 		res.EngineType, res.NodeCount, res.TPS, res.P50LatencyMs, res.P95LatencyMs, res.P99LatencyMs,
 		res.TotalMessages, res.TotalBytes)
 }
 
-// saveJSON 将 v 序列化为缩进 JSON 并写入指定路径，权限 0644。
 func saveJSON(path string, v interface{}) {
 	data, _ := json.MarshalIndent(v, "", "  ")
 	os.WriteFile(path, data, 0644)
