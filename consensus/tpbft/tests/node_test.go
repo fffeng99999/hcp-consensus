@@ -3,7 +3,7 @@ package tests
 import (
 	"testing"
 
-	"github.com/fffeng99999/hcp-consensus/consensus/tpbft"
+	"github.com/fffeng99999/hcap-consensus/consensus/tpbft"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fffeng99999/hcp-consensus/consensus/tpbft"
+	"github.com/fffeng99999/hcap-consensus/consensus/tpbft"
 )
 
 func TestTrustScorer_UpdateScore(t *testing.T) {

@@ -15,8 +15,8 @@ FROM alpine:latest
 
 RUN apk add --no-cache ca-certificates bash
 
-COPY --from=builder /app/build/hcpd /usr/local/bin/
+COPY --from=builder /app/build/hcapd /usr/local/bin/
 
 EXPOSE 26656 26657 1317 9090
 
-CMD ["hcpd", "start"]
+CMD ["hcapd", "start"]

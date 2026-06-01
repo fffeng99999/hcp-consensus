@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fffeng99999/hcp-consensus/engine/common"
-	"github.com/fffeng99999/hcp-consensus/engine/core"
+	"github.com/fffeng99999/hcap-consensus/engine/common"
+	"github.com/fffeng99999/hcap-consensus/engine/core"
 )
 
 // Role Raft 节点角色

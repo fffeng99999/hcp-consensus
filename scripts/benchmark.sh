@@ -6,9 +6,9 @@ echo "HCP Consensus Performance Benchmark"
 echo "========================================"
 echo ""
 
-BINARY="./build/hcpd"
+BINARY="./build/hcapd"
 NODE0_HOME="./testnet/node0"
-CHAIN_ID="hcp-testnet"
+CHAIN_ID="hcap-testnet"
 VALIDATOR="validator0"
 
 # Test configuration
@@ -38,7 +38,7 @@ echo ""
 
 # Function to send transaction and measure latency
 send_tx() {
-    local recipient="hcp1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0z0z0z"
+    local recipient="hcap1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0z0z0z"
     local start_time=$(date +%s%3N)
     
     $BINARY tx bank send "$VALIDATOR" "$recipient" 1stake \

@@ -2,8 +2,8 @@
 
 # Build variables
 BUILD_DIR := build
-BINARY := hcpd
-CHAIN_ID := hcp-testnet
+BINARY := hcapd
+CHAIN_ID := hcap-testnet
 NODE_COUNT := 4
 
 # Colors for output
@@ -19,13 +19,13 @@ all: build
 ###############################################################################
 
 build:
-	@echo "$(GREEN)Building hcpd binary with RocksDB support...$(NC)"
+	@echo "$(GREEN)Building hcapd binary with RocksDB support...$(NC)"
 	@mkdir -p $(BUILD_DIR)
-	@CGO_ENABLED=1 go build -tags rocksdb -o $(BUILD_DIR)/$(BINARY) ./cmd/hcpd
+	@CGO_ENABLED=1 go build -tags rocksdb -o $(BUILD_DIR)/$(BINARY) ./cmd/hcapd
 	@echo "$(GREEN)✅ Build complete: $(BUILD_DIR)/$(BINARY)$(NC)"
 
 install: build
-	@echo "$(GREEN)Installing hcpd...$(NC)"
+	@echo "$(GREEN)Installing hcapd...$(NC)"
 	@cp $(BUILD_DIR)/$(BINARY) $(GOPATH)/bin/
 	@echo "$(GREEN)✅ Installed to $(GOPATH)/bin/$(BINARY)$(NC)"
 
@@ -143,7 +143,7 @@ help:
 	@echo "HCP Consensus - Makefile Commands"
 	@echo ""
 	@echo "$(GREEN)Build:$(NC)"
-	@echo "  make build      - Build hcpd binary"
+	@echo "  make build      - Build hcapd binary"
 	@echo "  make install    - Install to GOPATH"
 	@echo ""
 	@echo "$(GREEN)Testnet:$(NC)"

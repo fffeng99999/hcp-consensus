@@ -4,8 +4,8 @@
 
 ### 1. 克隆项目
 ```bash
-git clone https://github.com/fffeng99999/hcp-consensus.git
-cd hcp-consensus
+git clone https://github.com/fffeng99999/hcap-consensus.git
+cd hcap-consensus
 ```
 
 ### 2. 构建二进制

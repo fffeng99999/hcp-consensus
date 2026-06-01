@@ -7,7 +7,7 @@ import (
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/fffeng99999/hcp-consensus/consensus/tpbft"
+	"github.com/fffeng99999/hcap-consensus/consensus/tpbft"
 )
 
 type Config struct {

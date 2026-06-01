@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fffeng99999/hcp-consensus/consensus/raft"
+	"github.com/fffeng99999/hcap-consensus/consensus/raft"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -17,10 +17,10 @@ curl -s http://localhost:26657/status | jq
 ### 第三部分: 交易测试 (2分钟)
 ```bash
 # 发送测试交易
-./build/hcpd tx bank send validator0 \
-  hcp1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0z0z0z \
+./build/hcapd tx bank send validator0 \
+  hcap1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0z0z0z \
   1000stake --from validator0 \
-  --chain-id hcp-testnet \
+  --chain-id hcap-testnet \
   --home ./testnet/node0 \
   --keyring-backend test --yes
 ```

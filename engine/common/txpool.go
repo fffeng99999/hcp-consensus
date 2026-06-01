@@ -3,7 +3,7 @@ package common
 import (
 	"sync"
 
-	"github.com/fffeng99999/hcp-consensus/engine/core"
+	"github.com/fffeng99999/hcap-consensus/engine/core"
 )
 
 // MemTxPool 内存交易池

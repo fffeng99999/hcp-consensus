@@ -47,20 +47,20 @@ import (
 	"github.com/spf13/cobra"
 
 	// 导入共识相关模块
-	"github.com/fffeng99999/hcp-consensus/consensus/common"
-	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical"
-	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_hotspot_tpbft"
-	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_lightweight_tpbft"
-	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_tpbft"
-	"github.com/fffeng99999/hcp-consensus/consensus/hierarchical_tpbft_parallel_block"
-	"github.com/fffeng99999/hcp-consensus/consensus/hotstuff"
-	"github.com/fffeng99999/hcp-consensus/consensus/ibft"
-	"github.com/fffeng99999/hcp-consensus/consensus/pow"
-	"github.com/fffeng99999/hcp-consensus/consensus/raft"
-	"github.com/fffeng99999/hcp-consensus/consensus/tpbft"
-	"github.com/fffeng99999/hcp-consensus/consensus/tpbft_parallel"
-	"github.com/fffeng99999/hcp-consensus/consensus/tpbft_parallel_block"
-	"github.com/fffeng99999/hcp-consensus/consensus/votor"
+	"github.com/fffeng99999/hcap-consensus/consensus/common"
+	"github.com/fffeng99999/hcap-consensus/consensus/hierarchical"
+	"github.com/fffeng99999/hcap-consensus/consensus/hierarchical_hotspot_tpbft"
+	"github.com/fffeng99999/hcap-consensus/consensus/hierarchical_lightweight_tpbft"
+	"github.com/fffeng99999/hcap-consensus/consensus/hierarchical_tpbft"
+	"github.com/fffeng99999/hcap-consensus/consensus/hierarchical_tpbft_parallel_block"
+	"github.com/fffeng99999/hcap-consensus/consensus/hotstuff"
+	"github.com/fffeng99999/hcap-consensus/consensus/ibft"
+	"github.com/fffeng99999/hcap-consensus/consensus/pow"
+	"github.com/fffeng99999/hcap-consensus/consensus/raft"
+	"github.com/fffeng99999/hcap-consensus/consensus/tpbft"
+	"github.com/fffeng99999/hcap-consensus/consensus/tpbft_parallel"
+	"github.com/fffeng99999/hcap-consensus/consensus/tpbft_parallel_block"
+	"github.com/fffeng99999/hcap-consensus/consensus/votor"
 )
 
 // BankAppModuleBasic 包装 bank 模块的基础功能，用于自定义交易命令的地址编码器
@@ -68,9 +68,9 @@ type BankAppModuleBasic struct {
 	bank.AppModuleBasic
 }
 
-// GetTxCmd 返回 bank 模块的交易命令，使用 hcp Bech32 前缀创建地址编码器
+// GetTxCmd 返回 bank 模块的交易命令，使用 hcap Bech32 前缀创建地址编码器
 func (b BankAppModuleBasic) GetTxCmd() *cobra.Command {
-	addrCodec := address.NewBech32Codec("hcp")
+	addrCodec := address.NewBech32Codec("hcap")
 	return bankcli.NewTxCmd(addrCodec)
 }
 
@@ -79,10 +79,10 @@ type StakingAppModuleBasic struct {
 	staking.AppModuleBasic
 }
 
-// GetTxCmd 返回 staking 模块的交易命令，使用 hcp 和 hcpvaloper Bech32 前缀创建地址编码器
+// GetTxCmd 返回 staking 模块的交易命令，使用 hcap 和 hcapvaloper Bech32 前缀创建地址编码器
 func (b StakingAppModuleBasic) GetTxCmd() *cobra.Command {
-	valAddrCodec := address.NewBech32Codec("hcpvaloper")
-	addrCodec := address.NewBech32Codec("hcp")
+	valAddrCodec := address.NewBech32Codec("hcapvaloper")
+	addrCodec := address.NewBech32Codec("hcap")
 	return stakingcli.NewTxCmd(valAddrCodec, addrCodec)
 }
 
@@ -101,18 +101,18 @@ var (
 	)
 )
 
-// init 在包导入时执行，初始化默认节点主目录为当前用户目录下的 .hcp 文件夹
+// init 在包导入时执行，初始化默认节点主目录为当前用户目录下的 .hcap 文件夹
 func init() {
 	userHomeDir, err := os.UserHomeDir()
 	if err != nil {
 		panic(err)
 	}
 
-	DefaultNodeHome = filepath.Join(userHomeDir, ".hcp")
+	DefaultNodeHome = filepath.Join(userHomeDir, ".hcap")
 }
 
 // appName 定义应用名称常量
-const appName = "hcpd"
+const appName = "hcapd"
 
 // App 扩展了 ABCI 应用的基础实现，集成 Cosmos SDK 各模块与自定义共识引擎
 type App struct {
@@ -152,8 +152,8 @@ func NewApp(
 	interfaceRegistry, err := codectypes.NewInterfaceRegistryWithOptions(codectypes.InterfaceRegistryOptions{
 		ProtoFiles: proto.HybridResolver,
 		SigningOptions: signing.Options{
-			AddressCodec:          address.NewBech32Codec("hcp"),
-			ValidatorAddressCodec: address.NewBech32Codec("hcpvaloper"),
+			AddressCodec:          address.NewBech32Codec("hcap"),
+			ValidatorAddressCodec: address.NewBech32Codec("hcapvaloper"),
 		},
 	})
 	if err != nil {
@@ -534,8 +534,8 @@ func NewApp(
 			stakingtypes.BondedPoolName:    {authtypes.Burner, authtypes.Staking},
 			stakingtypes.NotBondedPoolName: {authtypes.Burner, authtypes.Staking},
 		},
-		address.NewBech32Codec("hcp"),
-		"hcp",
+		address.NewBech32Codec("hcap"),
+		"hcap",
 		authtypes.NewModuleAddress("gov").String(),
 	)
 
@@ -567,8 +567,8 @@ func NewApp(
 		app.AccountKeeper,
 		app.BankKeeper,
 		authtypes.NewModuleAddress("gov").String(),
-		address.NewBech32Codec("hcpvaloper"),
-		address.NewBech32Codec("hcpvalcons"),
+		address.NewBech32Codec("hcapvaloper"),
+		address.NewBech32Codec("hcapvalcons"),
 	)
 
 	// 创建模块管理器

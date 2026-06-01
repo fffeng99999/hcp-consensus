@@ -5,21 +5,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: hcp-node0
+    container_name: hcap-node0
     hostname: node0
     volumes:
-      - ./testnet/node0:/root/.hcpd
-    command: hcpd start --home /root/.hcpd --log_level info
+      - ./testnet/node0:/root/.hcapd
+    command: hcapd start --home /root/.hcapd --log_level info
     ports:
       - "26657:26657"  # RPC
       - "26656:26656"  # P2P
       - "1317:1317"    # REST API
       - "9090:9090"    # gRPC
     environment:
-      - CHAIN_ID=hcp-testnet
+      - CHAIN_ID=hcap-testnet
       - MONIKER=node0
     networks:
-      hcp-network:
+      hcap-network:
         ipv4_address: 172.25.0.10
     restart: unless-stopped
     healthcheck:
@@ -32,21 +32,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: hcp-node1
+    container_name: hcap-node1
     hostname: node1
     volumes:
-      - ./testnet/node1:/root/.hcpd
-    command: hcpd start --home /root/.hcpd --log_level info
+      - ./testnet/node1:/root/.hcapd
+    command: hcapd start --home /root/.hcapd --log_level info
     ports:
       - "26667:26657"
       - "26666:26656"
       - "1327:1317"
       - "9091:9090"
     environment:
-      - CHAIN_ID=hcp-testnet
+      - CHAIN_ID=hcap-testnet
       - MONIKER=node1
     networks:
-      hcp-network:
+      hcap-network:
         ipv4_address: 172.25.0.11
     restart: unless-stopped
     depends_on:
@@ -56,21 +56,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: hcp-node2
+    container_name: hcap-node2
     hostname: node2
     volumes:
-      - ./testnet/node2:/root/.hcpd
-    command: hcpd start --home /root/.hcpd --log_level info
+      - ./testnet/node2:/root/.hcapd
+    command: hcapd start --home /root/.hcapd --log_level info
     ports:
       - "26677:26657"
       - "26676:26656"
       - "1337:1317"
       - "9092:9090"
     environment:
-      - CHAIN_ID=hcp-testnet
+      - CHAIN_ID=hcap-testnet
       - MONIKER=node2
     networks:
-      hcp-network:
+      hcap-network:
         ipv4_address: 172.25.0.12
     restart: unless-stopped
     depends_on:
@@ -80,21 +80,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: hcp-node3
+    container_name: hcap-node3
     hostname: node3
     volumes:
-      - ./testnet/node3:/root/.hcpd
-    command: hcpd start --home /root/.hcpd --log_level info
+      - ./testnet/node3:/root/.hcapd
+    command: hcapd start --home /root/.hcapd --log_level info
     ports:
       - "26687:26657"
       - "26686:26656"
       - "1347:1317"
       - "9093:9090"
     environment:
-      - CHAIN_ID=hcp-testnet
+      - CHAIN_ID=hcap-testnet
       - MONIKER=node3
     networks:
-      hcp-network:
+      hcap-network:
         ipv4_address: 172.25.0.13
     restart: unless-stopped
     depends_on:
@@ -102,13 +102,13 @@ services:
 
 #  gateway:
 #    build:
-#      context: ../hcp-gateway
+#      context: ../hcap-gateway
 #      dockerfile: Dockerfile
-#    container_name: hcp-gateway
+#    container_name: hcap-gateway
 #    ports:
 #      - "8080:8080"
 #    networks:
-#      hcp-network:
+#      hcap-network:
 #        ipv4_address: 172.25.0.20
 #    restart: unless-stopped
 #    depends_on:
@@ -116,13 +116,13 @@ services:
 #
 #  ui:
 #    build:
-#      context: ../hcp-ui
+#      context: ../hcap-ui
 #      dockerfile: Dockerfile
-#    container_name: hcp-ui
+#    container_name: hcap-ui
 #    ports:
 #      - "80:80"
 #    networks:
-#      hcp-network:
+#      hcap-network:
 #        ipv4_address: 172.25.0.30
 #    restart: unless-stopped
 #    depends_on:
@@ -130,32 +130,32 @@ services:
 
   prometheus:
     image: prom/prometheus:latest
-    container_name: hcp-prometheus
+    container_name: hcap-prometheus
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
       - "9099:9090"
     networks:
-      hcp-network:
+      hcap-network:
         ipv4_address: 172.25.0.100
     restart: unless-stopped
 
   grafana:
     image: grafana/grafana:latest
-    container_name: hcp-grafana
+    container_name: hcap-grafana
     ports:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
     networks:
-      hcp-network:
+      hcap-network:
         ipv4_address: 172.25.0.101
     restart: unless-stopped
     depends_on:
       - prometheus
 
 networks:
-  hcp-network:
+  hcap-network:
     driver: bridge
     ipam:
       driver: default

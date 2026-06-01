@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fffeng99999/hcp-consensus/engine/core"
+	"github.com/fffeng99999/hcap-consensus/engine/core"
 )
 
 // SimNet 是带延迟、带宽和消息统计能力的内存模拟网络。

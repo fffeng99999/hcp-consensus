@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"sync"
 
-	"github.com/fffeng99999/hcp-consensus/engine/core"
+	"github.com/fffeng99999/hcap-consensus/engine/core"
 )
 
 // SimpleExecutor 简单执行器，只维护状态哈希和账户余额

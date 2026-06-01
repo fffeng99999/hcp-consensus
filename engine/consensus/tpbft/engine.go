@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fffeng99999/hcp-consensus/engine/common"
-	"github.com/fffeng99999/hcp-consensus/engine/core"
+	"github.com/fffeng99999/hcap-consensus/engine/common"
+	"github.com/fffeng99999/hcap-consensus/engine/core"
 )
 
 // State 表示 tPBFT 单个高度内的共识阶段。

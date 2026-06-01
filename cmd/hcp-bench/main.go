@@ -23,14 +23,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fffeng99999/hcp-consensus/engine/core"
-	"github.com/fffeng99999/hcp-consensus/engine/factory"
+	"github.com/fffeng99999/hcap-consensus/engine/core"
+	"github.com/fffeng99999/hcap-consensus/engine/factory"
 	"github.com/quic-go/quic-go"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: hcp-bench <command> [args]")
+		fmt.Println("Usage: hcap-bench <command> [args]")
 		fmt.Println("Commands:")
 		fmt.Println("  benchmark <engine> <nodes> <txs> [outfile]          杩愯鍗曚竴鍩哄噯娴嬭瘯")
 		fmt.Println("  benchmark-group <engine> <nodes> <groups> <txs>     甯﹀垎缁勭殑benchmark")
@@ -163,8 +163,8 @@ func runSmoke() {
 
 func runServe() {
 	if len(os.Args) < 5 {
-		fmt.Println("Usage: hcp-bench serve <engine> <nodes> <listen> [groups]")
-		fmt.Println("Example: hcp-bench serve raft 8 127.0.0.1:8080")
+		fmt.Println("Usage: hcap-bench serve <engine> <nodes> <listen> [groups]")
+		fmt.Println("Example: hcap-bench serve raft 8 127.0.0.1:8080")
 		os.Exit(1)
 	}
 	engine := factory.EngineType(os.Args[2])
@@ -339,7 +339,7 @@ func runServe() {
 		_ = server.Shutdown(shutdownCtx)
 	}()
 
-	fmt.Printf("hcp-bench serve: engine=%s nodes=%d groups=%d listen=%s quic=%s\n", engine, nodes, groups, listen, listen)
+	fmt.Printf("hcap-bench serve: engine=%s nodes=%d groups=%d listen=%s quic=%s\n", engine, nodes, groups, listen, listen)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		fmt.Printf("http server failed: %v\n", err)
 		os.Exit(1)
@@ -356,7 +356,7 @@ func serveQUIC(ctx context.Context, listen string, submit func([]byte, string) (
 		<-ctx.Done()
 		_ = listener.Close()
 	}()
-	fmt.Printf("hcp-bench quic tx listener: %s\n", listen)
+	fmt.Printf("hcap-bench quic tx listener: %s\n", listen)
 	for {
 		conn, err := listener.Accept(ctx)
 		if err != nil {
@@ -403,14 +403,14 @@ func generateQUICServerTLSConfig() *tls.Config {
 	template := x509.Certificate{
 		SerialNumber: big.NewInt(time.Now().UnixNano()),
 		Subject: pkix.Name{
-			CommonName: "hcp-bench",
+			CommonName: "hcap-bench",
 		},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(24 * time.Hour),
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-		DNSNames:              []string{"hcp-bench", "localhost"},
+		DNSNames:              []string{"hcap-bench", "localhost"},
 	}
 	derBytes, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
 	if err != nil {
@@ -421,7 +421,7 @@ func generateQUICServerTLSConfig() *tls.Config {
 			Certificate: [][]byte{derBytes},
 			PrivateKey:  key,
 		}},
-		NextProtos: []string{"hcp-quic"},
+		NextProtos: []string{"hcap-quic"},
 	}
 }
 
@@ -441,7 +441,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 func runBenchmark() {
 	if len(os.Args) < 5 {
-		fmt.Println("Usage: hcp-bench benchmark <engine> <nodes> <txs> [outfile]")
+		fmt.Println("Usage: hcap-bench benchmark <engine> <nodes> <txs> [outfile]")
 		os.Exit(1)
 	}
 	engine := factory.EngineType(os.Args[2])
@@ -464,7 +464,7 @@ func runBenchmark() {
 
 func runBenchmarkGroup() {
 	if len(os.Args) < 6 {
-		fmt.Println("Usage: hcp-bench benchmark-group <engine> <nodes> <groups> <txs> [outfile]")
+		fmt.Println("Usage: hcap-bench benchmark-group <engine> <nodes> <groups> <txs> [outfile]")
 		os.Exit(1)
 	}
 	engine := factory.EngineType(os.Args[2])
@@ -702,7 +702,7 @@ func runGroupScan() {
 
 func runModelFit() {
 	if len(os.Args) < 3 {
-		fmt.Println("Usage: hcp-bench model-fit <data-json> [outfile]")
+		fmt.Println("Usage: hcap-bench model-fit <data-json> [outfile]")
 		os.Exit(1)
 	}
 	infile := os.Args[2]

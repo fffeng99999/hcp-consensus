@@ -5,10 +5,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fffeng99999/hcp-consensus/engine/common"
-	"github.com/fffeng99999/hcp-consensus/engine/consensus/pbft"
-	"github.com/fffeng99999/hcp-consensus/engine/consensus/raft"
-	"github.com/fffeng99999/hcp-consensus/engine/core"
+	"github.com/fffeng99999/hcap-consensus/engine/common"
+	"github.com/fffeng99999/hcap-consensus/engine/consensus/pbft"
+	"github.com/fffeng99999/hcap-consensus/engine/consensus/raft"
+	"github.com/fffeng99999/hcap-consensus/engine/core"
 )
 
 // HierarchicalLightweight 分层轻量级共识

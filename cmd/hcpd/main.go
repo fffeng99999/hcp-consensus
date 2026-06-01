@@ -1,4 +1,4 @@
-// hcpd 是 HCP 共识节点的守护进程入口。
+// hcapd 是 HCP 共识节点的守护进程入口。
 // 负责初始化 Cosmos SDK 应用并启动节点服务。
 package main
 
@@ -7,7 +7,7 @@ import (
 	"os"
 
 	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
-	"github.com/fffeng99999/hcp-consensus/app"
+	"github.com/fffeng99999/hcap-consensus/app"
 )
 
 func main() {

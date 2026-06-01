@@ -3,7 +3,7 @@ package tests
 import (
 	"testing"
 
-	"github.com/fffeng99999/hcp-consensus/consensus/hotstuff"
+	"github.com/fffeng99999/hcap-consensus/consensus/hotstuff"
 	"github.com/stretchr/testify/assert"
 )
 

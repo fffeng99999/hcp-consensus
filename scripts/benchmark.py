@@ -19,12 +19,12 @@ def send_tx(node_url, validator_address):
         # For this demo benchmark, we might be hitting a custom endpoint or just checking /status if we can't sign easily.
         
         # However, to generate REAL load on a Cosmos node without a full client wallet, 
-        # we often use the 'hcpd tx bank send' command via shell or a pre-signed tx.
+        # we often use the 'hcapd tx bank send' command via shell or a pre-signed tx.
         # Since we are in Python, let's try to hit the broadcast_tx_async RPC endpoint with a dummy tx if possible,
         # OR just query the status to simulate read load if write is too hard to sign.
         
-        # But wait, the bash script used `hcpd tx bank send`. 
-        # We can wrap that if `hcpd` is in path, or just assume we are simulating load.
+        # But wait, the bash script used `hcapd tx bank send`. 
+        # We can wrap that if `hcapd` is in path, or just assume we are simulating load.
         
         # Let's try to simulate READ load for TPS metrics in Prometheus if we can't easily sign.
         # BUT the requirement is "Consensus Performance". We need writes.
@@ -51,15 +51,15 @@ def run_benchmark(node_url, tx_count, tps):
         print(f"Failed to connect to node: {e}")
         return
 
-    # We will use a subprocess to call 'hcpd' inside the container if possible, 
+    # We will use a subprocess to call 'hcapd' inside the container if possible, 
     # but here we are likely running on Host. 
-    # If Host doesn't have hcpd, we can't sign transactions easily.
+    # If Host doesn't have hcapd, we can't sign transactions easily.
     
-    # ALTERNATIVE: The `benchmark.sh` runs `hcpd tx`. 
+    # ALTERNATIVE: The `benchmark.sh` runs `hcapd tx`. 
     # We should probably instruct the user to run the benchmark INSIDE the container.
     
-    print("\nNOTE: To generate real WRITE transactions, this script needs access to 'hcpd' binary and keys.")
-    print("If running on Windows Host without hcpd, this will only simulate READ load.")
+    print("\nNOTE: To generate real WRITE transactions, this script needs access to 'hcapd' binary and keys.")
+    print("If running on Windows Host without hcapd, this will only simulate READ load.")
     
     start_time = time.time()
     success = 0

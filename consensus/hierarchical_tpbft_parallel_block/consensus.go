@@ -7,7 +7,7 @@ import (
 
 	abci "github.com/cometbft/cometbft/abci/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/fffeng99999/hcp-consensus/consensus/tpbft"
+	"github.com/fffeng99999/hcap-consensus/consensus/tpbft"
 )
 
 // Config 包含分层 TPBFT 与并行 Merkle 块的全部配置参数。

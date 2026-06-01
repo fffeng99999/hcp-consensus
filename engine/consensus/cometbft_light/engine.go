@@ -1,8 +1,8 @@
 package cometbft_light
 
 import (
-	"github.com/fffeng99999/hcp-consensus/engine/common"
-	"github.com/fffeng99999/hcp-consensus/engine/consensus/cometbft"
+	"github.com/fffeng99999/hcap-consensus/engine/common"
+	"github.com/fffeng99999/hcap-consensus/engine/consensus/cometbft"
 )
 
 // CometBFTLight 保留实验脚本中的历史名称 cometbft-light。

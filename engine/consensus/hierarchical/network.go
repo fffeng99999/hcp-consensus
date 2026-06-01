@@ -1,6 +1,6 @@
 package hierarchical
 
-import "github.com/fffeng99999/hcp-consensus/engine/core"
+import "github.com/fffeng99999/hcap-consensus/engine/core"
 
 // FilteredNetwork 包装底层网络，只允许向指定节点发送消息。
 type FilteredNetwork struct {

@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fffeng99999/hcp-consensus/engine/common"
-	"github.com/fffeng99999/hcp-consensus/engine/consensus/hierarchical"
-	"github.com/fffeng99999/hcp-consensus/engine/core"
-	"github.com/fffeng99999/hcp-consensus/engine/network"
+	"github.com/fffeng99999/hcap-consensus/engine/common"
+	"github.com/fffeng99999/hcap-consensus/engine/consensus/hierarchical"
+	"github.com/fffeng99999/hcap-consensus/engine/core"
+	"github.com/fffeng99999/hcap-consensus/engine/network"
 )
 
 func main() {

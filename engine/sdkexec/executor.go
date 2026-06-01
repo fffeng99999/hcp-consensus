@@ -21,8 +21,8 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
-	hcpapp "github.com/fffeng99999/hcp-consensus/app"
-	"github.com/fffeng99999/hcp-consensus/engine/core"
+	hcapapp "github.com/fffeng99999/hcap-consensus/app"
+	"github.com/fffeng99999/hcap-consensus/engine/core"
 )
 
 // appOptions 实现 Cosmos SDK 的 AppOptions 接口
@@ -40,7 +40,7 @@ type Executor struct {
 	homeDir string
 	chainID string
 
-	app *hcpapp.App
+	app *hcapapp.App
 	db  dbm.DB
 
 	initialized     bool
@@ -54,7 +54,7 @@ type Executor struct {
 func New(nodeID, homeDir, chainID string) (*Executor, error) {
 	initSDKConfig()
 	if chainID == "" {
-		chainID = "hcp-engine-sdk"
+		chainID = "hcap-engine-sdk"
 	}
 	if err := os.MkdirAll(filepath.Join(homeDir, "data"), 0755); err != nil {
 		return nil, err
@@ -73,7 +73,7 @@ func New(nodeID, homeDir, chainID string) (*Executor, error) {
 		"engine-sdk-minimal":           true,
 		"engine-sdk-skip-init-genesis": true,
 	}
-	a := hcpapp.NewApp(log.NewNopLogger(), db, nil, false, options)
+	a := hcapapp.NewApp(log.NewNopLogger(), db, nil, false, options)
 	if err := a.LoadVersion(0); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -168,7 +168,7 @@ func (e *Executor) initChain() error {
 	if e.initialized {
 		return nil
 	}
-	genesisState := hcpapp.ModuleBasics.DefaultGenesis(e.app.AppCodec())
+	genesisState := hcapapp.ModuleBasics.DefaultGenesis(e.app.AppCodec())
 	if err := e.injectLoadgenAccounts(genesisState); err != nil {
 		return err
 	}
@@ -213,7 +213,7 @@ func (e *Executor) injectLoadgenAccounts(genesisState map[string]json.RawMessage
 	}
 	denom := os.Getenv("HCP_ENGINE_SDK_DENOM")
 	if denom == "" {
-		denom = "uhcp"
+		denom = "uhcap"
 	}
 	balance := int64(1_000_000_000)
 	if raw := os.Getenv("HCP_ENGINE_SDK_ACCOUNT_BALANCE"); raw != "" {
@@ -275,7 +275,7 @@ func (e *Executor) seedLoadgenAccounts() error {
 	}
 	denom := os.Getenv("HCP_ENGINE_SDK_DENOM")
 	if denom == "" {
-		denom = "uhcp"
+		denom = "uhcap"
 	}
 	balance := int64(1_000_000_000)
 	if raw := os.Getenv("HCP_ENGINE_SDK_ACCOUNT_BALANCE"); raw != "" {
@@ -462,9 +462,9 @@ func initSDKConfig() {
 	configOnce.Do(func() {
 		defer func() { _ = recover() }()
 		cfg := sdk.GetConfig()
-		cfg.SetBech32PrefixForAccount("hcp", "hcppub")
-		cfg.SetBech32PrefixForValidator("hcpvaloper", "hcpvaloperpub")
-		cfg.SetBech32PrefixForConsensusNode("hcpvalcons", "hcpvalconspub")
+		cfg.SetBech32PrefixForAccount("hcap", "hcappub")
+		cfg.SetBech32PrefixForValidator("hcapvaloper", "hcapvaloperpub")
+		cfg.SetBech32PrefixForConsensusNode("hcapvalcons", "hcapvalconspub")
 		cfg.Seal()
 	})
 }

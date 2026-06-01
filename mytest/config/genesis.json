@@ -2,7 +2,7 @@
   "app_name": "\u003cappd\u003e",
   "app_version": "",
   "genesis_time": "2026-02-05T10:38:30.819693692Z",
-  "chain_id": "hcp-testnet",
+  "chain_id": "hcap-testnet",
   "initial_height": 1,
   "app_hash": null,
   "app_state": {

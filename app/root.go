@@ -36,19 +36,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewRootCmd 创建 hcpd 的根命令
+// NewRootCmd 创建 hcapd 的根命令
 func NewRootCmd() *cobra.Command {
 	// 1. 初始化链级配置（Bech32 前缀等）
 	cfg := sdk.GetConfig()
-	cfg.SetBech32PrefixForAccount("hcp", "hcppub")
-	cfg.SetBech32PrefixForValidator("hcpvaloper", "hcpvaloperpub")
-	cfg.SetBech32PrefixForConsensusNode("hcpvalcons", "hcpvalconspub")
+	cfg.SetBech32PrefixForAccount("hcap", "hcappub")
+	cfg.SetBech32PrefixForValidator("hcapvaloper", "hcapvaloperpub")
+	cfg.SetBech32PrefixForConsensusNode("hcapvalcons", "hcapvalconspub")
 	cfg.Seal()
 
 	// 2. 初始化编码相关配置与 TxConfig
 	signingOptions := txsigning.Options{
-		AddressCodec:          sdkaddress.NewBech32Codec("hcp"),
-		ValidatorAddressCodec: sdkaddress.NewBech32Codec("hcpvaloper"),
+		AddressCodec:          sdkaddress.NewBech32Codec("hcap"),
+		ValidatorAddressCodec: sdkaddress.NewBech32Codec("hcapvaloper"),
 	}
 
 	interfaceRegistry, err := codectypes.NewInterfaceRegistryWithOptions(codectypes.InterfaceRegistryOptions{
@@ -83,7 +83,7 @@ func NewRootCmd() *cobra.Command {
 
 	// 3. 定义根命令 rootCmd
 	rootCmd := &cobra.Command{
-		Use:   "hcpd",
+		Use:   "hcapd",
 		Short: "HCP Consensus Node Daemon",
 		Long:  "High-frequency trading blockchain consensus performance testing system",
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
@@ -316,7 +316,7 @@ func CustomGenesisCoreCommand(txConfig client.TxConfig, moduleBasics module.Basi
 	cmd.AddCommand(
 		genutilcli.GenTxCmd(moduleBasics, txConfig, banktypes.GenesisBalancesIterator{}, defaultNodeHome, validatorCodec),
 		genutilcli.MigrateGenesisCmd(genutilcli.MigrationMap),
-		customCollectGenTxsCmd(banktypes.GenesisBalancesIterator{}, defaultNodeHome, gentxModule.GenTxValidator, sdkaddress.NewBech32Codec("hcpvaloper")),
+		customCollectGenTxsCmd(banktypes.GenesisBalancesIterator{}, defaultNodeHome, gentxModule.GenTxValidator, sdkaddress.NewBech32Codec("hcapvaloper")),
 		genutilcli.ValidateGenesisCmd(moduleBasics),
 		genutilcli.AddGenesisAccountCmd(defaultNodeHome, txConfig.SigningContext().AddressCodec()),
 	)

@@ -3,8 +3,8 @@ set -e
 
 # Configuration
 NODE_COUNT=${1:-4}
-CHAIN_ID=${2:-hcp-testnet}
-BINARY="./build/hcpd"
+CHAIN_ID=${2:-hcap-testnet}
+BINARY="./build/hcapd"
 TESTNET_DIR="./testnet"
 
 echo "========================================"

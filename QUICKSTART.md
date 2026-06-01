@@ -38,8 +38,8 @@ lsof -i :26687
 ### 步骤 1: 克隆项目
 
 ```bash
-git clone https://github.com/fffeng99999/hcp-consensus.git
-cd hcp-consensus
+git clone https://github.com/fffeng99999/hcap-consensus.git
+cd hcap-consensus
 ```
 
 ### 步骤 2: 构建二进制
@@ -50,7 +50,7 @@ make build
 
 **预期输出:**
 ```
-✅ Build complete: build/hcpd
+✅ Build complete: build/hcapd
 ```
 
 ### 步骤 3: 初始化测试网络
@@ -126,10 +126,10 @@ docker-compose ps
 **预期输出:**
 ```
 NAME          STATE
-hcp-node0     Up
-hcp-node1     Up
-hcp-node2     Up
-hcp-node3     Up
+hcap-node0     Up
+hcap-node1     Up
+hcap-node2     Up
+hcap-node3     Up
 ```
 
 ### 3. 查看网络连接
@@ -147,11 +147,11 @@ curl -s http://localhost:26657/net_info | jq '.result.n_peers'
 ### 发送测试交易
 
 ```bash
-./build/hcpd tx bank send validator0 \
-  hcp1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0z0z0z \
+./build/hcapd tx bank send validator0 \
+  hcap1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0z0z0z \
   1000stake \
   --from validator0 \
-  --chain-id hcp-testnet \
+  --chain-id hcap-testnet \
   --home ./testnet/node0 \
   --keyring-backend test \
   --yes
@@ -304,7 +304,7 @@ make status
 ```json
 {
   "node_info": {
-    "network": "hcp-testnet"
+    "network": "hcap-testnet"
   },
   "sync_info": {
     "latest_block_height": "100",
@@ -326,4 +326,4 @@ make status
 
 1. 查阅 [README.md](README.md) 常见问题部分
 2. 查看节点日志: `make logs`
-3. 提交 Issue: https://github.com/fffeng99999/hcp-consensus/issues
+3. 提交 Issue: https://github.com/fffeng99999/hcap-consensus/issues

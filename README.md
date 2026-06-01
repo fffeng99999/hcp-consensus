@@ -19,8 +19,8 @@
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/fffeng99999/hcp-consensus.git
-cd hcp-consensus
+git clone https://github.com/fffeng99999/hcap-consensus.git
+cd hcap-consensus
 
 # 2. 构建二进制
 make build
@@ -48,8 +48,8 @@ make status
 ## 🏭 架构
 
 ```
-hcp-consensus/
-├── cmd/hcpd/          # 主程序入口
+hcap-consensus/
+├── cmd/hcapd/          # 主程序入口
 │   └── main.go
 ├── app/               # Cosmos-SDK 应用层
 │   ├── app.go         # 应用逻辑
@@ -108,11 +108,11 @@ bash scripts/compare-consensus.sh
 ### 发送交易
 
 ```bash
-./build/hcpd tx bank send validator0 \
-  hcp1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0z0z0z \
+./build/hcapd tx bank send validator0 \
+  hcap1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq0z0z0z \
   1000stake \
   --from validator0 \
-  --chain-id hcp-testnet \
+  --chain-id hcap-testnet \
   --home ./testnet/node0 \
   --keyring-backend test \
   --yes
@@ -219,8 +219,8 @@ Apache License 2.0 - 详见 [LICENSE](LICENSE) 文件
 
 ## 📧 联系
 
-- **GitHub**: https://github.com/fffeng99999/hcp-consensus
-- **Issues**: https://github.com/fffeng99999/hcp-consensus/issues
+- **GitHub**: https://github.com/fffeng99999/hcap-consensus
+- **Issues**: https://github.com/fffeng99999/hcap-consensus/issues
 
 ---
 

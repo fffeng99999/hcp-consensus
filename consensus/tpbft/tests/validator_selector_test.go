@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/fffeng99999/hcp-consensus/consensus/tpbft"
+	"github.com/fffeng99999/hcap-consensus/consensus/tpbft"
 )
 
 func TestValidatorSelector_SelectValidators(t *testing.T) {
