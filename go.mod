@@ -1,4 +1,4 @@
-module github.com/fffeng99999/hcp-consensus
+module github.com/fffeng99999/hcap-consensus
 
 go 1.22
 
